@@ -33,11 +33,15 @@
   .seg .meta { font-size:12px; color:var(--muted); }
   .seg .who { font-weight:600; }
   .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:8px 0; }
+  .update { display:flex; gap:10px; align-items:center; background:var(--accent); color:#fff; border-radius:12px; padding:10px 12px; margin-bottom:14px; font-size:14px; }
+  .update button { width:auto; background:#fff; color:var(--accent); padding:8px 12px; }
+  .update[hidden] { display:none; }
   .bar > div { height:100%; width:0; background:var(--accent); transition:width .2s; }
 </style>
 </head>
 <body>
-<h1>Transcribe <span class="muted" style="font-weight:400">v5 · MP3 / M4A / QTA</span></h1>
+<h1>Transcribe <span class="muted" style="font-weight:400">v<span class="appVersion"></span></span></h1>
+<div class="update" id="update" hidden><span id="updateText"></span><button id="reload">Reload</button></div>
 
 <div class="card">
   <label for="key">Gemini API key (kept only on this device)</label>
@@ -76,16 +80,38 @@
   <div id="out"></div>
 </div>
 
-<script src="mp3split.js"></script>
-<script src="m4a.js"></script>
-<script src="audiofile.js"></script>
-<script src="transcript.js"></script>
-<script src="speakers.js"></script>
-<script src="gemini.js"></script>
+<p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
+
+<script src="mp3split.js?v=6"></script>
+<script src="m4a.js?v=6"></script>
+<script src="audiofile.js?v=6"></script>
+<script src="transcript.js?v=6"></script>
+<script src="speakers.js?v=6"></script>
+<script src="gemini.js?v=6"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
+
+  // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
+  var APP_VERSION = '6', APP_DATE = '2026-10-19';
+  Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
+  $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
+  $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
+  function checkLatest() {
+    fetch('version.json?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (v) {
+        if (!v) return;
+        var newer = v.version !== APP_VERSION;
+        $('update').hidden = !newer;
+        $('updateText').textContent = 'Version ' + v.version + ' is available (you have ' + APP_VERSION + ').';
+        $('versionStatus').textContent = newer ? 'update available' : '✓ latest';
+      })
+      .catch(function () { $('versionStatus').textContent = 'could not check for updates'; });
+  }
+  checkLatest();
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLatest(); });
   var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers;
   var state = { file: null, audio: null, pieces: [], segments: [] };
 

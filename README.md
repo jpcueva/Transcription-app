@@ -19,6 +19,11 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 Serve the folder over HTTPS (needed for the iPhone clipboard / home-screen install), e.g. GitHub Pages, or locally
 `npx http-server .`. The API key is stored in the browser's localStorage on the device only.
 
+## Versioning
+The page shows its version in the title and footer and checks `version.json` (uncached) each time it opens;
+if the server has a newer version it shows a Reload banner. When releasing, bump `APP_VERSION`/`APP_DATE` in
+`index.html`, `version.json`, and every `<script src="...?v=N">` together — `test/version.test.js` enforces this.
+
 ## Test
 `node --test test/*.test.js`
 

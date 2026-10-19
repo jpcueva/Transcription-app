@@ -1,11 +1,13 @@
 # Transcription app
 
-Static web page for iPhone Safari: pick an MP3, it is split on the phone into overlapping pieces
+Static web page for iPhone Safari: pick an MP3 or an M4A (Voice Memos), it is split on the phone into overlapping pieces
 (max 28 min, 90 s overlap by default), each piece is transcribed with Gemini (speaker labels + timestamps),
 and the pieces are joined into one timeline. Export as TXT or SRT.
 
 ## Files
 - `index.html` – the UI (no build step)
+- `m4a.js` – reads an M4A's frame index and cuts it into ADTS `.aac` pieces (AAC-LC only; lossless/ALAC recordings are rejected with a hint)
+- `audiofile.js` – detects MP3 vs M4A from the file contents and gives the page one `open()/cut()` interface
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
 - `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)

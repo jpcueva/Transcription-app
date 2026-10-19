@@ -57,7 +57,7 @@
 </div>
 
 <div class="card">
-  <label class="file" id="drop"><input id="file" type="file" accept="audio/mpeg,.mp3"><span id="fileName">Choose an MP3 file</span></label>
+  <label class="file" id="drop"><input id="file" type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac"><span id="fileName">Choose an audio file (MP3 or M4A / Voice Memo)</span></label>
   <div id="planBox" hidden>
     <p class="muted" id="planSummary"></p>
     <table id="planTable"><thead><tr><th>#</th><th>Start</th><th>End</th><th>Length</th><th>Status</th></tr></thead><tbody></tbody></table>
@@ -77,6 +77,8 @@
 </div>
 
 <script src="mp3split.js"></script>
+<script src="m4a.js"></script>
+<script src="audiofile.js"></script>
 <script src="transcript.js"></script>
 <script src="speakers.js"></script>
 <script src="gemini.js"></script>
@@ -84,8 +86,8 @@
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var T = window.Transcript, S = window.Mp3Split, Sp = window.Speakers;
-  var state = { file: null, bytes: null, info: null, pieces: [], segments: [] };
+  var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers;
+  var state = { file: null, audio: null, pieces: [], segments: [] };
 
   function store(k, v) { try { if (v == null) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
   $('key').value = store('gemini_key') || '';
@@ -118,15 +120,15 @@
       });
       tb.appendChild(tr);
     });
-    $('planSummary').textContent = 'Duration ' + fmt(state.info.durationSec) + ' → ' + state.pieces.length +
+    $('planSummary').textContent = 'Duration ' + fmt(state.audio.durationSec) + ' → ' + state.pieces.length +
       ' piece' + (state.pieces.length > 1 ? 's, ' + settings().overlapSec + ' s overlap' : '');
     $('planBox').hidden = false;
   }
 
   function replan() {
-    if (!state.info) return;
+    if (!state.audio) return;
     var s = settings();
-    try { state.pieces = S.plan(state.info.durationSec, { maxSec: s.maxSec, overlapSec: s.overlapSec }); showError(''); }
+    try { state.pieces = A.plan(state.audio.durationSec, { maxSec: s.maxSec, overlapSec: s.overlapSec }); showError(''); }
     catch (e) { state.pieces = []; showError(e.message); }
     if (state.pieces.length) renderPlan();
     refresh();
@@ -136,14 +138,13 @@
   $('file').addEventListener('change', function () {
     var f = $('file').files[0];
     if (!f) return;
-    state = { file: f, bytes: null, info: null, pieces: [], segments: [] };
+    state = { file: f, audio: null, pieces: [], segments: [] };
     $('fileName').textContent = f.name;
     $('outCard').hidden = true; $('planBox').hidden = true; $('barWrap').hidden = true; showError('');
     f.arrayBuffer().then(function (buf) {
-      state.bytes = new Uint8Array(buf);
-      state.info = S.parse(state.bytes);
+      state.audio = A.open(new Uint8Array(buf));
       replan();
-    }).catch(function (e) { showError('Could not read this file as MP3: ' + e.message); refresh(); });
+    }).catch(function (e) { showError('Could not read this audio file: ' + e.message); refresh(); });
   });
 
   function setStatus(i, text) { var el = $('st' + i); if (el) el.textContent = text; }
@@ -158,7 +159,7 @@
 
   $('go').addEventListener('click', function () {
     var key = $('key').value.trim(), model = $('model').value.trim(), s = settings();
-    var info = state.info, bytes = state.bytes, pieces = state.pieces;
+    var audio = state.audio, pieces = state.pieces;
     var results = new Array(pieces.length), done = 0, next = 0, failed = false;
     $('go').disabled = true; showError(''); $('outCard').hidden = true; $('barWrap').hidden = false; $('bar').style.width = '0';
     keepAwake(true);
@@ -167,8 +168,8 @@
     function worker() {
       if (failed || next >= pieces.length) return Promise.resolve();
       var p = pieces[next++];
-      var r = S.byteRange(info, p.startSec, p.endSec);
-      var blob = new Blob([bytes.subarray(r.startByte, r.endByte)], { type: 'audio/mpeg' });
+      var r = audio.cut(p.startSec, p.endSec);
+      var blob = new Blob([r.data], { type: audio.mime });
       setStatus(p.index, 'working…');
       return window.Gemini.transcribePiece({ key: key, model: model, blob: blob, name: state.file.name + ' part ' + (p.index + 1), maxSpeakers: s.maxSpeakers })
         .then(function (raw) {

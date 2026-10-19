@@ -11,6 +11,8 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
 - `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)
+- `edits.js` – rename / merge speakers and move single lines (pure functions)
+- `progress.js` – saves finished pieces and the edited transcript in the browser so an interrupted run can resume
 - `gemini.js` – the only file that calls the Gemini API. Transcription uses the Interactions API (`POST /v1beta/interactions`) with
   `transcription_config` for speaker diarization + word timestamps (field names from the google-genai SDK and the Gemini cookbook);
   the per-word `word_info` annotations are grouped into speaker turns. Speaker cleanup uses `generateContent` on a text model.
@@ -35,5 +37,13 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
    lines of the known speakers; it answers a known label, `NEW` or `UNKNOWN`. Can be switched off on the page.
 4. Anything still unplaced, and any speaker beyond "Max speakers", becomes "Unidentified speaker".
 
+## Editing and saved progress
+- Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
+  Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,
+  being addressed by name); it runs the first time you open the sheet and is cached.
+- Each finished piece is saved on the device as soon as it returns. If Safari reloads or an error stops the run, select the same
+  file again and press Transcribe: only the missing pieces are redone. The edited transcript is restored the same way.
+  Saved data is keyed by file name, size, modified time, piece settings and model; the 5 most recent files are kept.
+
 ## Not yet built
-Speaker renaming, resume after interruption, optional key-holding server function.
+Optional key-holding server function.

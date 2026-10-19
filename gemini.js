@@ -224,7 +224,57 @@
     }, 3);
   }
 
-  var api = { transcribePiece: transcribePiece, resolveSpeakers: resolveSpeakers, wordsToSegments: wordsToSegments };
+
+  // Text-only: suggest real names for each speaker label from what people say in the conversation.
+  function suggestNames(opts) {
+    var enc = function (t) { return Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'); };
+    var lines = opts.segments.map(function (s) { return '[' + enc(s.start) + '] ' + s.speaker + ': ' + s.text; }).join('\n');
+    if (lines.length > 400000) lines = lines.slice(0, 400000);
+    var prompt =
+      'Below is a transcript of a conversation with speaker labels. The labels were produced automatically and ' +
+      'a few lines may be attributed to the wrong speaker. For each speaker label, suggest the real name of that ' +
+      'person ONLY if the conversation itself supports it: they introduce themselves, someone addresses them by name ' +
+      '(a host calling a name right before that person answers is strong evidence), or others refer to them. ' +
+      'Never invent names, never use famous names that are merely discussed as a topic, and return an empty list ' +
+      'when there is no evidence. At most 3 suggestions per speaker, best first. "evidence" is a short quote with ' +
+      'its timestamp.\n\n# TRANSCRIPT\n' + lines;
+    var schema = {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: { type: 'STRING' },
+          names: { type: 'ARRAY', items: { type: 'OBJECT', properties: { name: { type: 'STRING' }, evidence: { type: 'STRING' } }, required: ['name'] } }
+        },
+        required: ['label', 'names']
+      }
+    };
+    return retry(function () {
+      return fetch(BASE + '/v1beta/models/' + encodeURIComponent(opts.model) + ':generateContent', {
+        method: 'POST',
+        headers: { 'x-goog-api-key': opts.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0 }
+        })
+      }).then(function (r) { return check(r, 'Name suggestions'); })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          var c = j.candidates && j.candidates[0];
+          var text = c && c.content && c.content.parts && c.content.parts.map(function (p) { return p.text || ''; }).join('');
+          if (!text) throw new Error('Empty response');
+          var out = {};
+          JSON.parse(text).forEach(function (m) {
+            var names = (m.names || []).filter(function (n) { return n && n.name && String(n.name).trim(); })
+              .map(function (n) { return { name: String(n.name).trim().slice(0, 40), evidence: n.evidence ? String(n.evidence).slice(0, 160) : '' }; });
+            if (m.label) out[m.label] = names.slice(0, 3);
+          });
+          return out;
+        });
+    }, 3);
+  }
+
+  var api = { transcribePiece: transcribePiece, resolveSpeakers: resolveSpeakers, suggestNames: suggestNames, wordsToSegments: wordsToSegments };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Gemini = api;
 })(typeof self !== 'undefined' ? self : this);

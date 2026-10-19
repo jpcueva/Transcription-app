@@ -8,8 +8,8 @@
 <meta name="theme-color" content="#111111">
 <title>Transcribe</title>
 <style>
-  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --card:#f2f2f7; --line:#d8d8de; --accent:#0a6cff; --bad:#d70015; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f2f2f7; --muted:#9a9aa0; --card:#1c1c1e; --line:#38383a; --accent:#4f9bff; --bad:#ff6961; } }
+  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --card:#f2f2f7; --chip:#e4eefc; --line:#d8d8de; --accent:#0a6cff; --bad:#d70015; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f2f2f7; --muted:#9a9aa0; --card:#1c1c1e; --chip:#16263d; --line:#38383a; --accent:#4f9bff; --bad:#ff6961; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, system-ui, sans-serif;
          padding:max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); max-width:720px; margin-inline:auto; }
@@ -31,7 +31,22 @@
   .err { color:var(--bad); }
   .seg { padding:8px 0; border-bottom:1px solid var(--line); }
   .seg .meta { font-size:12px; color:var(--muted); }
-  .seg .who { font-weight:600; }
+  .seg .who { font:inherit; font-size:12px; font-weight:600; width:auto; display:inline; padding:2px 9px; margin-left:2px; border-radius:999px; background:var(--chip); color:var(--accent); border:0; }
+  .seg .who.unid { color:var(--muted); font-style:italic; }
+  .hint { margin:0 0 8px; }
+  .sheet { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10; display:flex; align-items:flex-end; justify-content:center; }
+  .sheet[hidden] { display:none; }
+  .sheetBody { background:var(--bg); width:100%; max-width:720px; max-height:88vh; overflow:auto; border-radius:18px 18px 0 0; padding:16px 16px max(20px, env(safe-area-inset-bottom)); }
+  .sheetHead { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
+  .sheetHead button { width:auto; padding:8px 14px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { width:auto; padding:8px 12px; background:var(--chip); color:var(--accent); font-weight:600; border-radius:999px; font-size:15px; }
+  .sug { display:flex; gap:10px; align-items:baseline; margin:6px 0; }
+  .sug .chip { flex:0 0 auto; }
+  .sug span { font-size:12px; color:var(--muted); }
+  .sample { font-size:13px; color:var(--muted); margin:2px 0; }
+  .saved { display:flex; gap:10px; align-items:center; justify-content:space-between; font-size:13px; color:var(--muted); }
+  .saved button { width:auto; padding:6px 10px; font-size:13px; }
   .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:8px 0; }
   .update { display:flex; gap:10px; align-items:center; background:var(--accent); color:#fff; border-radius:12px; padding:10px 12px; margin-bottom:14px; font-size:14px; }
   .update button { width:auto; background:#fff; color:var(--accent); padding:8px 12px; }
@@ -51,8 +66,9 @@
   <div class="row">
     <div><label for="maxMin">Max piece (min)</label><input id="maxMin" type="number" value="28" min="2" max="30"></div>
     <div><label for="ovSec">Overlap (sec)</label><input id="ovSec" type="number" value="90" min="0" max="600"></div>
-    <div><label for="spk">Max speakers</label><input id="spk" type="number" value="4" min="1" max="8"></div>
+    <div><label for="spk">Max speakers</label><input id="spk" type="number" value="8" min="1" max="8"></div>
   </div>
+  <p class="muted" style="margin:8px 0 0">Voices beyond “Max speakers” are shown as “Unidentified speaker”. Leave it at 8; you can rename and merge speakers afterwards.</p>
   <label for="cleanModel">Speaker-cleanup model (text only)</label>
   <input id="cleanModel" type="text" value="gemini-flash-latest" autocapitalize="off" autocorrect="off">
   <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:15px;color:var(--fg)">
@@ -66,6 +82,7 @@
     <p class="muted" id="planSummary"></p>
     <table id="planTable"><thead><tr><th>#</th><th>Start</th><th>End</th><th>Length</th><th>Status</th></tr></thead><tbody></tbody></table>
   </div>
+  <div class="saved" id="saved" hidden><span id="savedText"></span><button class="secondary" id="clearSaved">Clear saved</button></div>
   <div class="bar" id="barWrap" hidden><div id="bar"></div></div>
   <p class="err" id="error" hidden></p>
   <button id="go" disabled style="margin-top:12px">Transcribe</button>
@@ -77,24 +94,39 @@
     <button class="secondary" id="dlTxt">TXT</button>
     <button class="secondary" id="dlSrt">SRT</button>
   </div>
+  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line.</p>
   <div id="out"></div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheetBody" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheetHead"><strong id="sheetTitle"></strong><button class="secondary" id="sheetClose">Done</button></div>
+    <div id="sheetSamples"></div>
+    <label for="sheetName">Name this speaker everywhere</label>
+    <div class="row"><input id="sheetName" type="text" placeholder="e.g. Roman" maxlength="40" autocomplete="off"><button id="sheetSave" style="flex:0 0 auto;width:auto">Rename</button></div>
+    <div id="sheetSuggest" style="margin-top:8px"></div>
+    <label id="sheetMergeLabel">Same person as…</label><div id="sheetMerge" class="chips"></div>
+    <label id="sheetMoveLabel"></label><div id="sheetMove" class="chips"></div>
+  </div>
 </div>
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=6"></script>
-<script src="m4a.js?v=6"></script>
-<script src="audiofile.js?v=6"></script>
-<script src="transcript.js?v=6"></script>
-<script src="speakers.js?v=6"></script>
-<script src="gemini.js?v=6"></script>
+<script src="mp3split.js?v=7"></script>
+<script src="m4a.js?v=7"></script>
+<script src="audiofile.js?v=7"></script>
+<script src="transcript.js?v=7"></script>
+<script src="speakers.js?v=7"></script>
+<script src="gemini.js?v=7"></script>
+<script src="edits.js?v=7"></script>
+<script src="progress.js?v=7"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '6', APP_DATE = '2026-10-19';
+  var APP_VERSION = '7', APP_DATE = '2026-10-19';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -112,14 +144,19 @@
   }
   checkLatest();
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLatest(); });
-  var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers;
-  var state = { file: null, audio: null, pieces: [], segments: [] };
+  var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers, Ed = window.Edits, Pr = window.Progress;
+  var state = { file: null, audio: null, pieces: [], segments: [], fp: null, suggestions: null, suggestError: '' };
+  // localStorage can be missing or throw (private mode); progress saving then silently does nothing.
+  var LS = (function () {
+    try { var l = window.localStorage; l.getItem('x'); return l; }
+    catch (e) { return { getItem: function () { return null; }, setItem: function () { throw e; }, removeItem: function () {} }; }
+  })();
 
   function store(k, v) { try { if (v == null) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
   $('key').value = store('gemini_key') || '';
   $('model').value = store('gemini_model') || $('model').value;
   $('key').addEventListener('change', function () { store('gemini_key', $('key').value.trim()); refresh(); });
-  $('model').addEventListener('change', function () { store('gemini_model', $('model').value.trim()); });
+  $('model').addEventListener('change', function () { store('gemini_model', $('model').value.trim()); if (state.pieces.length) refreshSaved(); });
   $('cleanModel').value = store('gemini_clean_model') || $('cleanModel').value;
   $('cleanModel').addEventListener('change', function () { store('gemini_clean_model', $('cleanModel').value.trim()); });
   $('useAi').checked = store('gemini_use_ai') !== '0';
@@ -132,7 +169,8 @@
     return {
       maxSec: Math.min(30, Math.max(2, +$('maxMin').value || 28)) * 60,
       overlapSec: Math.max(0, +$('ovSec').value || 0),
-      maxSpeakers: Math.min(8, Math.max(1, +$('spk').value || 4))
+      model: $('model').value.trim(),
+      maxSpeakers: Math.min(8, Math.max(1, +$('spk').value || 8))
     };
   }
 
@@ -156,7 +194,7 @@
     var s = settings();
     try { state.pieces = A.plan(state.audio.durationSec, { maxSec: s.maxSec, overlapSec: s.overlapSec }); showError(''); }
     catch (e) { state.pieces = []; showError(e.message); }
-    if (state.pieces.length) renderPlan();
+    if (state.pieces.length) { renderPlan(); refreshSaved(); }
     refresh();
   }
   ['maxMin', 'ovSec'].forEach(function (id) { $(id).addEventListener('change', replan); });
@@ -164,7 +202,8 @@
   $('file').addEventListener('change', function () {
     var f = $('file').files[0];
     if (!f) return;
-    state = { file: f, audio: null, pieces: [], segments: [] };
+    state = { file: f, audio: null, pieces: [], segments: [], fp: null, suggestions: null, suggestError: '' };
+    $('saved').hidden = true;
     $('fileName').textContent = f.name;
     $('outCard').hidden = true; $('planBox').hidden = true; $('barWrap').hidden = true; showError('');
     f.arrayBuffer().then(function (buf) {
@@ -183,23 +222,61 @@
     } catch (e) {}
   }
 
+  // Saved progress: reopen an edited transcript, or continue a run that was interrupted.
+  function refreshSaved() {
+    var s = settings();
+    state.fp = Pr.fingerprint(state.file, s);
+    var d = Pr.load(LS, state.fp);
+    var have = state.pieces.filter(function (p) { return d.pieces[p.index] && d.pieces[p.index].segments; }).length;
+    var text = '';
+    if (d.final && d.final.length) {
+      state.segments = d.final;
+      renderOutput([], true);
+      text = 'Restored your saved transcript (including your edits).';
+    } else if (have) {
+      text = 'Saved progress: ' + have + ' of ' + state.pieces.length + ' pieces. Press Transcribe to continue.';
+      state.pieces.forEach(function (p) { if (d.pieces[p.index] && d.pieces[p.index].segments) setStatus(p.index, 'saved ✓'); });
+    }
+    $('savedText').textContent = text;
+    $('saved').hidden = !text;
+  }
+  $('clearSaved').addEventListener('click', function () {
+    Pr.clear(LS, state.fp);
+    state.segments = []; state.suggestions = null;
+    $('outCard').hidden = true; $('saved').hidden = true;
+    state.pieces.forEach(function (p) { setStatus(p.index, 'waiting'); });
+  });
+  function persistFinal() { if (state.fp) Pr.saveFinal(LS, state.fp, state.segments); }
+
   $('go').addEventListener('click', function () {
     var key = $('key').value.trim(), model = $('model').value.trim(), s = settings();
-    var audio = state.audio, pieces = state.pieces;
-    var results = new Array(pieces.length), done = 0, next = 0, failed = false;
-    $('go').disabled = true; showError(''); $('outCard').hidden = true; $('barWrap').hidden = false; $('bar').style.width = '0';
+    var audio = state.audio, pieces = state.pieces, fp = state.fp;
+    var saved = Pr.load(LS, fp);
+    if (saved.final && saved.final.length && !confirm('This replaces your saved transcript and any edits you made. Continue?')) return;
+
+    var results = new Array(pieces.length), failed = false;
+    pieces.forEach(function (p) {
+      var r = saved.pieces[p.index];
+      if (r && r.segments) results[p.index] = r;
+    });
+    var todo = pieces.filter(function (p) { return !results[p.index]; });
+    var done = pieces.length - todo.length, next = 0;
+
+    $('go').disabled = true; showError(''); $('outCard').hidden = true; $('saved').hidden = true; $('barWrap').hidden = false;
+    $('bar').style.width = (done / pieces.length * 100) + '%';
     keepAwake(true);
-    pieces.forEach(function (p) { setStatus(p.index, 'waiting'); });
+    pieces.forEach(function (p) { setStatus(p.index, results[p.index] ? 'saved ✓' : 'waiting'); });
 
     function worker() {
-      if (failed || next >= pieces.length) return Promise.resolve();
-      var p = pieces[next++];
+      if (failed || next >= todo.length) return Promise.resolve();
+      var p = todo[next++];
       var r = audio.cut(p.startSec, p.endSec);
       var blob = new Blob([r.data], { type: audio.mime });
       setStatus(p.index, 'working…');
       return window.Gemini.transcribePiece({ key: key, model: model, blob: blob, name: state.file.name + ' part ' + (p.index + 1), maxSpeakers: s.maxSpeakers })
         .then(function (raw) {
           results[p.index] = { startSec: r.actualStartSec, endSec: r.actualEndSec, segments: T.normalize(raw, r.actualStartSec) };
+          Pr.savePiece(LS, fp, p.index, results[p.index]);
           setStatus(p.index, 'done (' + results[p.index].segments.length + ')');
           $('bar').style.width = (++done / pieces.length * 100) + '%';
         })
@@ -207,7 +284,7 @@
         .then(worker);
     }
 
-    var lanes = []; for (var i = 0; i < Math.min(2, pieces.length); i++) lanes.push(worker());
+    var lanes = []; for (var i = 0; i < Math.min(2, todo.length); i++) lanes.push(worker());
     Promise.all(lanes).then(function () {
       $('bar').style.width = '100%';
       var resolver = $('useAi').checked && pieces.length > 1
@@ -218,29 +295,131 @@
       return Sp.resolve(results, { resolver: resolver });
     }).then(function (res) {
       state.segments = Sp.capSpeakers(T.join(res.pieces), s.maxSpeakers);
+      state.suggestions = null; state.suggestError = '';
+      persistFinal();
       renderOutput(res.warnings);
-    }).catch(function (e) { showError(e.message); })
-      .then(function () { keepAwake(false); refresh(); });
+    }).catch(function (e) {
+      var any = results.some(Boolean);
+      showError(e.message + (any ? '  Finished pieces are saved; press Transcribe to continue.' : ''));
+    }).then(function () { keepAwake(false); refresh(); });
   });
 
-  function renderOutput(warnings) {
+  function renderOutput(warnings, quiet) {
     var out = $('out'); out.innerHTML = '';
     var unid = state.segments.filter(function (g) { return g.speaker === Sp.UNID; }).length;
     var note = [];
     if (unid) note.push(unid + ' of ' + state.segments.length + ' segments are "' + Sp.UNID + '".');
     (warnings || []).forEach(function (w) { note.push(w); });
     var n = document.createElement('p'); n.className = 'muted'; n.textContent = note.join(' '); n.hidden = !note.length; out.appendChild(n);
-    state.segments.forEach(function (g) {
+    state.segments.forEach(function (g, i) {
       var d = document.createElement('div'); d.className = 'seg';
       var m = document.createElement('div'); m.className = 'meta';
-      var w = document.createElement('span'); w.className = 'who'; w.textContent = g.speaker;
+      var w = document.createElement('button'); w.className = 'who' + (g.speaker === Sp.UNID ? ' unid' : ''); w.type = 'button';
+      w.textContent = g.speaker || Sp.UNID; w.setAttribute('data-i', i);
       m.appendChild(document.createTextNode(fmt(g.start) + ' · ')); m.appendChild(w);
       var t = document.createElement('div'); t.textContent = g.text;
       d.appendChild(m); d.appendChild(t); out.appendChild(d);
     });
     $('outCard').hidden = false;
-    $('outCard').scrollIntoView({ behavior: 'smooth' });
+    if (!quiet) $('outCard').scrollIntoView({ behavior: 'smooth' });
   }
+  $('out').addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button.who') : null;
+    if (b) openSheet(+b.getAttribute('data-i'));
+  });
+
+  // ---- Speaker sheet: rename everywhere, merge, move one line, name suggestions ----
+  var sheet = { index: -1, label: '' };
+
+  function chip(text, onClick, cls) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = cls || 'chip'; b.textContent = text;
+    b.addEventListener('click', onClick); return b;
+  }
+  function closeSheet() { $('sheet').hidden = true; sheet.index = -1; }
+  function applyAndClose(segments, dropSuggestionFor) {
+    state.segments = segments;
+    if (dropSuggestionFor && state.suggestions) delete state.suggestions[dropSuggestionFor];
+    persistFinal(); renderOutput([], true); closeSheet();
+  }
+
+  function renderSheet() {
+    var seg = state.segments[sheet.index];
+    if (!seg) return closeSheet();
+    var label = sheet.label = seg.speaker;
+    var stats = Ed.stats(state.segments), mine = stats.filter(function (x) { return x.label === label; })[0];
+    $('sheetTitle').textContent = (label || Sp.UNID) + ' · ' + (mine ? mine.lines : 0) + ' line' + (mine && mine.lines === 1 ? '' : 's');
+
+    var sm = $('sheetSamples'); sm.innerHTML = '';
+    Ed.sampleLines(state.segments, label, 2, 120).forEach(function (l) {
+      var p = document.createElement('div'); p.className = 'sample'; p.textContent = fmt(l.start) + '  “' + l.text + '”'; sm.appendChild(p);
+    });
+
+    // Suggestions
+    var box = $('sheetSuggest'); box.innerHTML = '';
+    var info = function (t) { var p = document.createElement('p'); p.className = 'muted'; p.textContent = t; box.appendChild(p); return p; };
+    if (state.suggestions === 'loading') info('Looking for names in the conversation…');
+    else if (state.suggestError) {
+      info('Could not get name suggestions: ' + state.suggestError);
+      box.appendChild(chip('Try again', function () { state.suggestError = ''; state.suggestions = null; loadSuggestions(); }, 'chip'));
+    } else if (state.suggestions) {
+      var list = state.suggestions[label] || [];
+      if (!list.length) info('No name for this speaker was mentioned in the conversation.');
+      else {
+        info('Suggested from the conversation (tap to use):');
+        list.forEach(function (sg) {
+          var row = document.createElement('div'); row.className = 'sug';
+          row.appendChild(chip(sg.name, function () { $('sheetName').value = sg.name; $('sheetName').focus(); }));
+          if (sg.evidence) { var ev = document.createElement('span'); ev.textContent = sg.evidence; row.appendChild(ev); }
+          box.appendChild(row);
+        });
+      }
+    }
+
+    // Merge with another speaker
+    var mg = $('sheetMerge'); mg.innerHTML = '';
+    var others = stats.filter(function (x) { return x.label !== label; });
+    $('sheetMergeLabel').hidden = mg.hidden = !others.length;
+    others.forEach(function (o) {
+      mg.appendChild(chip(o.label + ' (' + o.lines + ')', function () { applyAndClose(Ed.rename(state.segments, label, o.label), label); }));
+    });
+
+    // Move only this line
+    var mv = $('sheetMove'); mv.innerHTML = '';
+    $('sheetMoveLabel').textContent = 'Only the line at ' + fmt(seg.start) + ' belongs to…';
+    var targets = others.map(function (o) { return o.label; });
+    if (label !== Sp.UNID && targets.indexOf(Sp.UNID) < 0) targets.push(Sp.UNID);
+    $('sheetMoveLabel').hidden = mv.hidden = !targets.length;
+    targets.forEach(function (t) {
+      mv.appendChild(chip(t, function () { applyAndClose(Ed.moveLine(state.segments, sheet.index, t)); }));
+    });
+  }
+
+  function loadSuggestions() {
+    var key = $('key').value.trim();
+    if (state.suggestions || !key) { if (!key) state.suggestError = 'enter your API key first'; return renderSheet(); }
+    state.suggestions = 'loading'; state.suggestError = '';
+    renderSheet();
+    window.Gemini.suggestNames({ key: key, model: $('cleanModel').value.trim(), segments: state.segments })
+      .then(function (map) { state.suggestions = map; })
+      .catch(function (e) { state.suggestions = null; state.suggestError = e.message; })
+      .then(function () { if (sheet.index >= 0) renderSheet(); });
+  }
+
+  function openSheet(index) {
+    sheet.index = index;
+    $('sheetName').value = '';
+    $('sheet').hidden = false;
+    renderSheet();
+    if (!state.suggestions && !state.suggestError) loadSuggestions();
+  }
+  $('sheetClose').addEventListener('click', closeSheet);
+  $('sheet').addEventListener('click', function (e) { if (e.target === $('sheet')) closeSheet(); });
+  $('sheetSave').addEventListener('click', function () {
+    var name = Ed.clean($('sheetName').value);
+    if (!name) { $('sheetName').focus(); return; }
+    applyAndClose(Ed.rename(state.segments, sheet.label, name), sheet.label);
+  });
+  $('sheetName').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('sheetSave').click(); });
 
   function download(name, text) {
     var a = document.createElement('a');

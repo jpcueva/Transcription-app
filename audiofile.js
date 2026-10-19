@@ -9,7 +9,7 @@
   var m4a = typeof require === 'function' && typeof module !== 'undefined' ? require('./m4a.js') : root.M4a;
 
   function open(bytes) {
-    if (bytes.length > 12 && String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp') {
+    if (bytes.length > 12 && /^(ftyp|moov|mdat|wide|free|skip)$/.test(String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]))) {
       var a = m4a.parse(bytes);
       return {
         kind: 'aac', mime: 'audio/aac', ext: 'aac', durationSec: a.durationSec,

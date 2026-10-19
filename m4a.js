@@ -69,7 +69,7 @@
    */
   function parse(b) {
     var top = boxes(b, 0, b.length);
-    if (!top.length || top[0].type !== 'ftyp') throw new Error('Not an M4A/MP4 file');
+    if (!top.length) throw new Error('Not an M4A/MP4/QuickTime audio file');
     var moov = top.filter(function (x) { return x.type === 'moov'; })[0];
     if (!moov) throw new Error('This recording has no index (moov). It may be unfinished or damaged.');
 

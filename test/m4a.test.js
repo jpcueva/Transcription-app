@@ -76,7 +76,7 @@ test('AudioFile: still opens MP3s', () => {
 test('friendly errors', () => {
   assert.throws(() => M4a.parse(makeM4a(60, { codec: 'alac' })), /lossless/i);
   assert.throws(() => M4a.parse(makeM4a(60, { noMoov: true })), /no index/i);
-  assert.throws(() => M4a.parse(new Uint8Array(100)), /Not an M4A/);
+  assert.throws(() => M4a.parse(new Uint8Array(100)), /Not an M4A|no index/);
   const cutOff = makeM4a(60); // drop the tail so the frame table points past the end of the file
   assert.throws(() => M4a.parse(cutOff.subarray(0, 30000)), /index|cut off|damaged/i);
 });

@@ -37,7 +37,7 @@
 </style>
 </head>
 <body>
-<h1>Transcribe</h1>
+<h1>Transcribe <span class="muted" style="font-weight:400">v4 · MP3 / M4A / QTA</span></h1>
 
 <div class="card">
   <label for="key">Gemini API key (kept only on this device)</label>
@@ -57,7 +57,7 @@
 </div>
 
 <div class="card">
-  <label class="file" id="drop"><input id="file" type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a,audio/aac"><span id="fileName">Choose an audio file (MP3 or M4A / Voice Memo)</span></label>
+  <label class="file" id="drop"><input id="file" type="file" accept="audio/*,.mp3,.m4a,.qta,.aac,.mp4,.mov"><span id="fileName">Choose an audio file (MP3 or M4A / Voice Memo)</span></label>
   <div id="planBox" hidden>
     <p class="muted" id="planSummary"></p>
     <table id="planTable"><thead><tr><th>#</th><th>Start</th><th>End</th><th>Length</th><th>Status</th></tr></thead><tbody></tbody></table>

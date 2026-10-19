@@ -11,7 +11,9 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
 - `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)
-- `gemini.js` – the only file that calls the Gemini API (**unverified against the gemini-3.5-transcribe docs**, see header comment)
+- `gemini.js` – the only file that calls the Gemini API. Transcription uses the Interactions API (`POST /v1beta/interactions`) with
+  `transcription_config` for speaker diarization + word timestamps (field names from the google-genai SDK and the Gemini cookbook);
+  the per-word `word_info` annotations are grouped into speaker turns. Speaker cleanup uses `generateContent` on a text model.
 
 ## Run
 Serve the folder over HTTPS (needed for the iPhone clipboard / home-screen install), e.g. GitHub Pages, or locally

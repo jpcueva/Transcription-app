@@ -1,36 +1,15 @@
 /*
  * gemini.js - the ONLY file that talks to the Gemini API.
  *
- * UNVERIFIED: written without access to the gemini-3.5-transcribe docs page. The Files API upload and
- * generateContent shapes below follow the standard Gemini API. If the transcribe model wants different
- * fields (a dedicated diarization / timestamp config, another endpoint, a different response shape),
- * change transcribePiece() only; the rest of the app just needs [{start, end, speaker, text}] back.
+ * Transcription uses the Interactions API (POST /v1beta/interactions), which is what gemini-3.5-transcribe
+ * expects; it does not accept generateContent's JSON mode. Field names follow the google-genai SDK
+ * (2.x) and the Gemini cookbook "Get_started_transcribe" notebook. Speaker labels and timestamps come
+ * back as per-word "word_info" annotations, which wordsToSegments() groups into speaker turns.
  */
 (function (root) {
   'use strict';
 
   var BASE = 'https://generativelanguage.googleapis.com';
-
-  var PROMPT =
-    'Transcribe this audio verbatim, in the language spoken. Label who is speaking in every segment ' +
-    'using consistent labels ("Speaker 1", "Speaker 2", ...). Use at most {max} distinct speakers; ' +
-    'use "Unidentified speaker" for any voice beyond that or whenever you cannot tell. ' +
-    'Give each segment start and end timestamps as MM:SS or HH:MM:SS from the start of this audio. ' +
-    'Return only JSON: an array of {"start","end","speaker","text"}.';
-
-  var SCHEMA = {
-    type: 'ARRAY',
-    items: {
-      type: 'OBJECT',
-      properties: {
-        start: { type: 'STRING' },
-        end: { type: 'STRING' },
-        speaker: { type: 'STRING' },
-        text: { type: 'STRING' }
-      },
-      required: ['start', 'speaker', 'text']
-    }
-  };
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -76,29 +55,115 @@
     return poll(file, 0);
   }
 
-  function generate(key, model, file, maxSpeakers) {
-    var body = {
-      contents: [{
-        parts: [
-          { text: PROMPT.replace('{max}', String(maxSpeakers)) },
-          { fileData: { mimeType: file.mimeType || 'audio/mpeg', fileUri: file.uri } }
-        ]
-      }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: SCHEMA, temperature: 0 }
+  function seconds(v) {
+    if (v == null) return null;
+    var n = parseFloat(String(v));
+    return isFinite(n) ? n : null;
+  }
+
+  // "spk:0" / "spk_1" -> "Speaker 1", "Speaker 2", ... in order of first appearance within this piece.
+  function speakerNamer() {
+    var seen = {}, n = 0;
+    return function (raw) {
+      if (!raw) return '';
+      if (!seen[raw]) seen[raw] = 'Speaker ' + ++n;
+      return seen[raw];
     };
-    return fetch(BASE + '/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+  }
+
+  /**
+   * Interaction response -> [{start, end, speaker, text}] (seconds from the start of the piece).
+   * A new segment starts when the speaker changes, after a pause > 1.5 s, or after a sentence once a
+   * segment is longer than 30 s.
+   */
+  function wordsToSegments(interaction) {
+    var name = speakerNamer(), segs = [], cur = null;
+    var enc = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+    var dec = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+
+    function close() {
+      if (!cur) return;
+      var text = cur.words.join(' ');
+      if (enc && dec && cur.bytes && cur.firstIdx != null && cur.lastIdx != null && cur.lastIdx > cur.firstIdx) {
+        text = dec.decode(cur.bytes.subarray(cur.firstIdx, cur.lastIdx));
+      }
+      segs.push({ start: cur.start, end: cur.end, speaker: cur.speaker, text: text.trim() });
+      cur = null;
+    }
+
+    (interaction.steps || []).forEach(function (step) {
+      (step.content || []).forEach(function (item) {
+        var bytes = enc && item.text ? enc.encode(item.text) : null;
+        (item.annotations || []).forEach(function (a) {
+          if (a.type !== 'word_info' || !a.text) return;
+          var start = seconds(a.start_offset), end = seconds(a.end_offset);
+          if (start == null) return;
+          var who = name(a.speaker);
+          var sentenceEnd = cur && /[.!?]$/.test(cur.words[cur.words.length - 1]);
+          if (cur && (who !== cur.speaker || start - cur.end > 1.5 || (cur.end - cur.start > 30 && sentenceEnd) || bytes !== cur.bytes)) close();
+          if (!cur) cur = { start: start, end: end == null ? start : end, speaker: who, words: [], bytes: bytes, firstIdx: a.start_index, lastIdx: a.end_index };
+          cur.words.push(a.text);
+          cur.end = end == null ? cur.end : end;
+          if (a.end_index != null) cur.lastIdx = a.end_index;
+        });
+        close();
+      });
+    });
+
+    if (!segs.length) {
+      var text = interaction.output_text || '';
+      if (text.trim()) segs.push({ start: 0, end: 0, speaker: '', text: text.trim() });
+    }
+    return segs;
+  }
+
+  function interactionBody(model, file, mime, nested) {
+    var opts = { diarization_mode: 'speaker', timestamp_granularities: ['word'] };
+    var tc = nested ? { mode: Object.assign({ type: 'verbatim' }, opts) } : opts;
+    return {
+      model: model,
+      input: [{ type: 'audio', uri: file.uri, mime_type: mime || file.mimeType || 'audio/mpeg' }],
+      generation_config: { transcription_config: tc }
+    };
+  }
+
+  function postInteraction(key, body) {
+    return fetch(BASE + '/v1beta/interactions', {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
-    }).then(function (r) { return check(r, 'Transcription'); })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var c = j.candidates && j.candidates[0];
-        var text = c && c.content && c.content.parts && c.content.parts.map(function (p) { return p.text || ''; }).join('');
-        if (!text) throw new Error('Empty response' + (c && c.finishReason ? ' (' + c.finishReason + ')' : ''));
-        var data = JSON.parse(text);
-        return Array.isArray(data) ? data : data.segments || [];
-      });
+    }).then(function (r) { return check(r, 'Transcription'); }).then(function (r) { return r.json(); });
+  }
+
+  // If the server answers before the work is done, poll until it finishes.
+  function waitDone(key, it) {
+    function poll(x, tries) {
+      var st = x.status;
+      if (!st || st === 'completed') return Promise.resolve(x);
+      if (st !== 'in_progress' && st !== 'queued') {
+        var msg = (x.errors && x.errors[0] && x.errors[0].message) || st;
+        return Promise.reject(new Error('Transcription ' + st + ': ' + msg));
+      }
+      if (tries > 300 || !x.id) return Promise.reject(new Error('Transcription timed out'));
+      return sleep(3000)
+        .then(function () { return fetch(BASE + '/v1beta/interactions/' + encodeURIComponent(x.id), { headers: { 'x-goog-api-key': key } }); })
+        .then(function (r) { return check(r, 'Transcription status'); })
+        .then(function (r) { return r.json(); })
+        .then(function (n) { return poll(n, tries + 1); });
+    }
+    return poll(it, 0);
+  }
+
+  // Current SDK puts diarization/timestamps under mode:{type:"verbatim"}; the cookbook puts them directly
+  // in transcription_config. Try the current form first and fall back once if the server rejects it.
+  function transcribe(key, model, file, mime) {
+    return postInteraction(key, interactionBody(model, file, mime, true))
+      .catch(function (e) {
+        if (e.status !== 400) throw e;
+        return postInteraction(key, interactionBody(model, file, mime, false));
+      })
+      .then(function (it) { return waitDone(key, it); })
+      .then(wordsToSegments);
   }
 
   // Retry transient failures (rate limit / server errors / bad JSON) with backoff.
@@ -118,7 +183,7 @@
   function transcribePiece(opts) {
     return retry(function () { return uploadFile(opts.key, opts.blob, opts.name); }, 3)
       .then(function (f) { return waitActive(opts.key, f); })
-      .then(function (f) { return retry(function () { return generate(opts.key, opts.model, f, opts.maxSpeakers); }, 3); });
+      .then(function (f) { return retry(function () { return transcribe(opts.key, opts.model, f, opts.blob.type); }, 3); });
   }
 
   // Text-only: decide which already-known speaker each unmatched label is. No audio is sent.
@@ -159,5 +224,7 @@
     }, 3);
   }
 
-  root.Gemini = { transcribePiece: transcribePiece, resolveSpeakers: resolveSpeakers };
+  var api = { transcribePiece: transcribePiece, resolveSpeakers: resolveSpeakers, wordsToSegments: wordsToSegments };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.Gemini = api;
 })(typeof self !== 'undefined' ? self : this);

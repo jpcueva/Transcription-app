@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Transcribe">
+<meta name="theme-color" content="#111111">
+<title>Transcribe</title>
+<style>
+  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --card:#f2f2f7; --line:#d8d8de; --accent:#0a6cff; --bad:#d70015; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f2f2f7; --muted:#9a9aa0; --card:#1c1c1e; --line:#38383a; --accent:#4f9bff; --bad:#ff6961; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, system-ui, sans-serif;
+         padding:max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); max-width:720px; margin-inline:auto; }
+  h1 { font-size:22px; margin:8px 0 16px; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:14px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  label:first-child { margin-top:0; }
+  input, select, button { font:inherit; }
+  input[type=text], input[type=password], input[type=number] { width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--fg); }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+  button { padding:12px 14px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-weight:600; width:100%; }
+  button.secondary { background:var(--line); color:var(--fg); }
+  button:disabled { opacity:.5; }
+  .file { display:block; padding:18px; border:2px dashed var(--line); border-radius:12px; text-align:center; color:var(--muted); }
+  .file input { display:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { padding:6px 4px; text-align:left; border-bottom:1px solid var(--line); }
+  .muted { color:var(--muted); font-size:13px; }
+  .err { color:var(--bad); }
+  .seg { padding:8px 0; border-bottom:1px solid var(--line); }
+  .seg .meta { font-size:12px; color:var(--muted); }
+  .seg .who { font-weight:600; }
+  .bar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:8px 0; }
+  .bar > div { height:100%; width:0; background:var(--accent); transition:width .2s; }
+</style>
+</head>
+<body>
+<h1>Transcribe</h1>
+
+<div class="card">
+  <label for="key">Gemini API key (kept only on this device)</label>
+  <input id="key" type="password" autocomplete="off" placeholder="AIza...">
+  <label for="model">Model</label>
+  <input id="model" type="text" value="gemini-3.5-transcribe" autocapitalize="off" autocorrect="off">
+  <div class="row">
+    <div><label for="maxMin">Max piece (min)</label><input id="maxMin" type="number" value="28" min="2" max="30"></div>
+    <div><label for="ovSec">Overlap (sec)</label><input id="ovSec" type="number" value="90" min="0" max="600"></div>
+    <div><label for="spk">Max speakers</label><input id="spk" type="number" value="4" min="1" max="8"></div>
+  </div>
+</div>
+
+<div class="card">
+  <label class="file" id="drop"><input id="file" type="file" accept="audio/mpeg,.mp3"><span id="fileName">Choose an MP3 file</span></label>
+  <div id="planBox" hidden>
+    <p class="muted" id="planSummary"></p>
+    <table id="planTable"><thead><tr><th>#</th><th>Start</th><th>End</th><th>Length</th><th>Status</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="bar" id="barWrap" hidden><div id="bar"></div></div>
+  <p class="err" id="error" hidden></p>
+  <button id="go" disabled style="margin-top:12px">Transcribe</button>
+</div>
+
+<div class="card" id="outCard" hidden>
+  <div class="row" style="margin-bottom:10px">
+    <button class="secondary" id="copy">Copy</button>
+    <button class="secondary" id="dlTxt">TXT</button>
+    <button class="secondary" id="dlSrt">SRT</button>
+  </div>
+  <div id="out"></div>
+</div>
+
+<script src="mp3split.js"></script>
+<script src="transcript.js"></script>
+<script src="gemini.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var T = window.Transcript, S = window.Mp3Split;
+  var state = { file: null, bytes: null, info: null, pieces: [], segments: [] };
+
+  function store(k, v) { try { if (v == null) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
+  $('key').value = store('gemini_key') || '';
+  $('model').value = store('gemini_model') || $('model').value;
+  $('key').addEventListener('change', function () { store('gemini_key', $('key').value.trim()); refresh(); });
+  $('model').addEventListener('change', function () { store('gemini_model', $('model').value.trim()); });
+
+  function fmt(sec) { return T.formatTime(sec); }
+  function showError(msg) { $('error').hidden = !msg; $('error').textContent = msg || ''; }
+  function refresh() { $('go').disabled = !(state.pieces.length && $('key').value.trim()); }
+  function settings() {
+    return {
+      maxSec: Math.min(30, Math.max(2, +$('maxMin').value || 28)) * 60,
+      overlapSec: Math.max(0, +$('ovSec').value || 0),
+      maxSpeakers: Math.min(8, Math.max(1, +$('spk').value || 4))
+    };
+  }
+
+  function renderPlan() {
+    var tb = $('planTable').querySelector('tbody');
+    tb.innerHTML = '';
+    state.pieces.forEach(function (p) {
+      var tr = document.createElement('tr');
+      [p.index + 1, fmt(p.startSec), fmt(p.endSec), fmt(p.endSec - p.startSec), 'waiting'].forEach(function (v, i) {
+        var td = document.createElement('td'); td.textContent = v; if (i === 4) td.id = 'st' + p.index; tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    $('planSummary').textContent = 'Duration ' + fmt(state.info.durationSec) + ' → ' + state.pieces.length +
+      ' piece' + (state.pieces.length > 1 ? 's, ' + settings().overlapSec + ' s overlap' : '');
+    $('planBox').hidden = false;
+  }
+
+  function replan() {
+    if (!state.info) return;
+    var s = settings();
+    try { state.pieces = S.plan(state.info.durationSec, { maxSec: s.maxSec, overlapSec: s.overlapSec }); showError(''); }
+    catch (e) { state.pieces = []; showError(e.message); }
+    if (state.pieces.length) renderPlan();
+    refresh();
+  }
+  ['maxMin', 'ovSec'].forEach(function (id) { $(id).addEventListener('change', replan); });
+
+  $('file').addEventListener('change', function () {
+    var f = $('file').files[0];
+    if (!f) return;
+    state = { file: f, bytes: null, info: null, pieces: [], segments: [] };
+    $('fileName').textContent = f.name;
+    $('outCard').hidden = true; $('planBox').hidden = true; $('barWrap').hidden = true; showError('');
+    f.arrayBuffer().then(function (buf) {
+      state.bytes = new Uint8Array(buf);
+      state.info = S.parse(state.bytes);
+      replan();
+    }).catch(function (e) { showError('Could not read this file as MP3: ' + e.message); refresh(); });
+  });
+
+  function setStatus(i, text) { var el = $('st' + i); if (el) el.textContent = text; }
+
+  var wake = null;
+  function keepAwake(on) {
+    try {
+      if (on && navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wake = l; }).catch(function () {});
+      else if (!on && wake) { wake.release(); wake = null; }
+    } catch (e) {}
+  }
+
+  $('go').addEventListener('click', function () {
+    var key = $('key').value.trim(), model = $('model').value.trim(), s = settings();
+    var info = state.info, bytes = state.bytes, pieces = state.pieces;
+    var results = new Array(pieces.length), done = 0, next = 0, failed = false;
+    $('go').disabled = true; showError(''); $('outCard').hidden = true; $('barWrap').hidden = false; $('bar').style.width = '0';
+    keepAwake(true);
+    pieces.forEach(function (p) { setStatus(p.index, 'waiting'); });
+
+    function worker() {
+      if (failed || next >= pieces.length) return Promise.resolve();
+      var p = pieces[next++];
+      var r = S.byteRange(info, p.startSec, p.endSec);
+      var blob = new Blob([bytes.subarray(r.startByte, r.endByte)], { type: 'audio/mpeg' });
+      setStatus(p.index, 'working…');
+      return window.Gemini.transcribePiece({ key: key, model: model, blob: blob, name: state.file.name + ' part ' + (p.index + 1), maxSpeakers: s.maxSpeakers })
+        .then(function (raw) {
+          results[p.index] = { startSec: r.actualStartSec, endSec: r.actualEndSec, segments: T.normalize(raw, r.actualStartSec) };
+          setStatus(p.index, 'done (' + results[p.index].segments.length + ')');
+          $('bar').style.width = (++done / pieces.length * 100) + '%';
+        })
+        .catch(function (e) { setStatus(p.index, 'failed'); failed = true; throw e; })
+        .then(worker);
+    }
+
+    var lanes = []; for (var i = 0; i < Math.min(2, pieces.length); i++) lanes.push(worker());
+    Promise.all(lanes).then(function () {
+      var joined = T.join(results);
+      state.segments = pieces.length > 1
+        ? joined.map(function (g) { return Object.assign({}, g, { speaker: g.speaker + ' (part ' + (g.piece + 1) + ')' }); })
+        : joined;
+      renderOutput();
+    }).catch(function (e) { showError(e.message); })
+      .then(function () { keepAwake(false); refresh(); });
+  });
+
+  function renderOutput() {
+    var out = $('out'); out.innerHTML = '';
+    state.segments.forEach(function (g) {
+      var d = document.createElement('div'); d.className = 'seg';
+      var m = document.createElement('div'); m.className = 'meta';
+      var w = document.createElement('span'); w.className = 'who'; w.textContent = g.speaker;
+      m.appendChild(document.createTextNode(fmt(g.start) + ' · ')); m.appendChild(w);
+      var t = document.createElement('div'); t.textContent = g.text;
+      d.appendChild(m); d.appendChild(t); out.appendChild(d);
+    });
+    $('outCard').hidden = false;
+    $('outCard').scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function download(name, text) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function base() { return (state.file ? state.file.name : 'transcript').replace(/\.[^.]+$/, ''); }
+  $('dlTxt').addEventListener('click', function () { download(base() + '.txt', T.toText(state.segments)); });
+  $('dlSrt').addEventListener('click', function () { download(base() + '.srt', T.toSrt(state.segments)); });
+  $('copy').addEventListener('click', function () {
+    var b = $('copy');
+    navigator.clipboard.writeText(T.toText(state.segments)).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); });
+  });
+})();
+</script>
+</body>
+</html>

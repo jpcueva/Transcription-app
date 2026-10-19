@@ -121,5 +121,43 @@
       .then(function (f) { return retry(function () { return generate(opts.key, opts.model, f, opts.maxSpeakers); }, 3); });
   }
 
-  root.Gemini = { transcribePiece: transcribePiece };
+  // Text-only: decide which already-known speaker each unmatched label is. No audio is sent.
+  function resolveSpeakers(opts) {
+    var fmt = function (list) {
+      return list.map(function (x) {
+        return '## ' + x.label + '\n' + (x.samples.length ? x.samples.map(function (s) { return '- ' + s.text; }).join('\n') : '- (no sample lines)');
+      }).join('\n\n');
+    };
+    var prompt =
+      'Several people spoke in a long recording that was transcribed in separate parts, so speaker labels are not ' +
+      'consistent between parts. Below are KNOWN speakers with sample lines, then UNMATCHED labels from a later part ' +
+      'with their lines. For each unmatched label say which known speaker it is, using names, roles, topics, who is ' +
+      'addressed and speaking style. Answer with the exact known label, "NEW" if it is clearly someone not listed, or ' +
+      '"UNKNOWN" if you cannot tell. Do not guess.\n\n# KNOWN\n' + fmt(opts.canonical) + '\n\n# UNMATCHED\n' + fmt(opts.unresolved);
+    var schema = {
+      type: 'ARRAY',
+      items: { type: 'OBJECT', properties: { label: { type: 'STRING' }, match: { type: 'STRING' } }, required: ['label', 'match'] }
+    };
+    return retry(function () {
+      return fetch(BASE + '/v1beta/models/' + encodeURIComponent(opts.model) + ':generateContent', {
+        method: 'POST',
+        headers: { 'x-goog-api-key': opts.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0 }
+        })
+      }).then(function (r) { return check(r, 'Speaker cleanup'); })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          var c = j.candidates && j.candidates[0];
+          var text = c && c.content && c.content.parts && c.content.parts.map(function (p) { return p.text || ''; }).join('');
+          if (!text) throw new Error('Empty response');
+          var out = {};
+          JSON.parse(text).forEach(function (m) { out[m.label] = m.match; });
+          return out;
+        });
+    }, 3);
+  }
+
+  root.Gemini = { transcribePiece: transcribePiece, resolveSpeakers: resolveSpeakers };
 })(typeof self !== 'undefined' ? self : this);

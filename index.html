@@ -49,6 +49,11 @@
     <div><label for="ovSec">Overlap (sec)</label><input id="ovSec" type="number" value="90" min="0" max="600"></div>
     <div><label for="spk">Max speakers</label><input id="spk" type="number" value="4" min="1" max="8"></div>
   </div>
+  <label for="cleanModel">Speaker-cleanup model (text only)</label>
+  <input id="cleanModel" type="text" value="gemini-flash-latest" autocapitalize="off" autocorrect="off">
+  <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:15px;color:var(--fg)">
+    <input id="useAi" type="checkbox" checked> Use AI to place speakers the overlap couldn't match
+  </label>
 </div>
 
 <div class="card">
@@ -73,12 +78,13 @@
 
 <script src="mp3split.js"></script>
 <script src="transcript.js"></script>
+<script src="speakers.js"></script>
 <script src="gemini.js"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var T = window.Transcript, S = window.Mp3Split;
+  var T = window.Transcript, S = window.Mp3Split, Sp = window.Speakers;
   var state = { file: null, bytes: null, info: null, pieces: [], segments: [] };
 
   function store(k, v) { try { if (v == null) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} return null; }
@@ -86,6 +92,10 @@
   $('model').value = store('gemini_model') || $('model').value;
   $('key').addEventListener('change', function () { store('gemini_key', $('key').value.trim()); refresh(); });
   $('model').addEventListener('change', function () { store('gemini_model', $('model').value.trim()); });
+  $('cleanModel').value = store('gemini_clean_model') || $('cleanModel').value;
+  $('cleanModel').addEventListener('change', function () { store('gemini_clean_model', $('cleanModel').value.trim()); });
+  $('useAi').checked = store('gemini_use_ai') !== '0';
+  $('useAi').addEventListener('change', function () { store('gemini_use_ai', $('useAi').checked ? '1' : '0'); });
 
   function fmt(sec) { return T.formatTime(sec); }
   function showError(msg) { $('error').hidden = !msg; $('error').textContent = msg || ''; }
@@ -172,17 +182,27 @@
 
     var lanes = []; for (var i = 0; i < Math.min(2, pieces.length); i++) lanes.push(worker());
     Promise.all(lanes).then(function () {
-      var joined = T.join(results);
-      state.segments = pieces.length > 1
-        ? joined.map(function (g) { return Object.assign({}, g, { speaker: g.speaker + ' (part ' + (g.piece + 1) + ')' }); })
-        : joined;
-      renderOutput();
+      $('bar').style.width = '100%';
+      var resolver = $('useAi').checked && pieces.length > 1
+        ? function (req) {
+            return window.Gemini.resolveSpeakers({ key: key, model: $('cleanModel').value.trim(), canonical: req.canonical, unresolved: req.unresolved });
+          }
+        : null;
+      return Sp.resolve(results, { resolver: resolver });
+    }).then(function (res) {
+      state.segments = Sp.capSpeakers(T.join(res.pieces), s.maxSpeakers);
+      renderOutput(res.warnings);
     }).catch(function (e) { showError(e.message); })
       .then(function () { keepAwake(false); refresh(); });
   });
 
-  function renderOutput() {
+  function renderOutput(warnings) {
     var out = $('out'); out.innerHTML = '';
+    var unid = state.segments.filter(function (g) { return g.speaker === Sp.UNID; }).length;
+    var note = [];
+    if (unid) note.push(unid + ' of ' + state.segments.length + ' segments are "' + Sp.UNID + '".');
+    (warnings || []).forEach(function (w) { note.push(w); });
+    var n = document.createElement('p'); n.className = 'muted'; n.textContent = note.join(' '); n.hidden = !note.length; out.appendChild(n);
     state.segments.forEach(function (g) {
       var d = document.createElement('div'); d.className = 'seg';
       var m = document.createElement('div'); m.className = 'meta';

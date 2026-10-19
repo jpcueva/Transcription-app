@@ -8,6 +8,7 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `index.html` – the UI (no build step)
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
+- `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)
 - `gemini.js` – the only file that calls the Gemini API (**unverified against the gemini-3.5-transcribe docs**, see header comment)
 
 ## Run
@@ -17,6 +18,13 @@ Serve the folder over HTTPS (needed for the iPhone clipboard / home-screen insta
 ## Test
 `node --test test/*.test.js`
 
+## How speakers are matched
+1. Each piece is transcribed on its own, so its labels are local.
+2. For every label in piece N, the words it said in the overlap with piece N-1 are compared with the words
+   already-resolved speakers said there. A label is mapped only with ≥5 matched words and a clear winner (2× the runner-up).
+3. Labels left over (e.g. someone silent in the overlap) are sent, as text only, to a cheaper model together with sample
+   lines of the known speakers; it answers a known label, `NEW` or `UNKNOWN`. Can be switched off on the page.
+4. Anything still unplaced, and any speaker beyond "Max speakers", becomes "Unidentified speaker".
+
 ## Not yet built
-Cross-piece speaker matching (labels currently show `Speaker N (part K)`), speaker renaming,
-resume after interruption, optional key-holding server function.
+Speaker renaming, resume after interruption, optional key-holding server function.

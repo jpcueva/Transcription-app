@@ -8,9 +8,10 @@
 <meta name="theme-color" content="#111111">
 <title>Transcribe</title>
 <style>
-  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --card:#f2f2f7; --chip:#e4eefc; --line:#d8d8de; --accent:#0a6cff; --bad:#d70015; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f2f2f7; --muted:#9a9aa0; --card:#1c1c1e; --chip:#16263d; --line:#38383a; --accent:#4f9bff; --bad:#ff6961; } }
+  :root { --bg:#fff; --fg:#1c1c1e; --muted:#6b6b70; --card:#f2f2f7; --chip:#e4eefc; --warn:#b25000; --line:#d8d8de; --accent:#0a6cff; --bad:#d70015; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#000; --fg:#f2f2f7; --muted:#9a9aa0; --card:#1c1c1e; --chip:#16263d; --warn:#ffb340; --line:#38383a; --accent:#4f9bff; --bad:#ff6961; } }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.45 -apple-system, system-ui, sans-serif;
          padding:max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom)); max-width:720px; margin-inline:auto; }
   h1 { font-size:22px; margin:8px 0 16px; }
@@ -38,7 +39,10 @@
   .seg .edit { font:inherit; font-size:12px; width:auto; margin-left:auto; padding:2px 10px; border-radius:999px; background:transparent; color:var(--accent); border:1px solid var(--line); }
   .seg .tag { font-size:11px; color:var(--muted); font-style:italic; }
   .seg textarea { width:100%; font:inherit; padding:8px; border:1px solid var(--accent); border-radius:10px; background:var(--bg); color:var(--fg); resize:vertical; margin-top:4px; }
-  .seg .editBar { display:flex; gap:8px; margin-top:6px; }
+  .seg .editBar { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+  .seg.flagged { border-left:3px solid var(--warn); padding-left:8px; }
+  .seg .flag { display:block; font-size:12px; color:var(--warn); margin-top:2px; }
+  .seg .editHint { font-size:12px; color:var(--muted); margin-top:6px; }
   .seg .editBar button { width:auto; padding:8px 16px; }
   .seg .editBar .danger { margin-left:auto; background:transparent; color:var(--bad); border:1px solid var(--bad); }
   .toast { position:fixed; left:12px; right:12px; bottom:max(14px, env(safe-area-inset-bottom)); max-width:696px; margin:0 auto; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:10px;
@@ -82,7 +86,7 @@
   <label for="cleanModel">Speaker-cleanup model (text only)</label>
   <input id="cleanModel" type="text" value="gemini-flash-latest" autocapitalize="off" autocorrect="off">
   <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:15px;color:var(--fg)">
-    <input id="useAi" type="checkbox" checked> Use AI to match speakers between parts (only when a name makes it clear)
+    <input id="useAi" type="checkbox" checked> Use AI to match speakers between parts (names, roles, topics, style)
   </label>
 </div>
 
@@ -104,7 +108,7 @@
     <button class="secondary" id="dlTxt">TXT</button>
     <button class="secondary" id="dlSrt">SRT</button>
   </div>
-  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct a line's text or delete the line.</p>
+  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct, split or delete a line. Lines marked ⚠ look like model mistakes worth checking.</p>
   <div id="out"></div>
 </div>
 
@@ -124,21 +128,22 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=10"></script>
-<script src="m4a.js?v=10"></script>
-<script src="audiofile.js?v=10"></script>
-<script src="transcript.js?v=10"></script>
-<script src="speakers.js?v=10"></script>
-<script src="gemini.js?v=10"></script>
-<script src="edits.js?v=10"></script>
-<script src="progress.js?v=10"></script>
+<script src="mp3split.js?v=11"></script>
+<script src="m4a.js?v=11"></script>
+<script src="audiofile.js?v=11"></script>
+<script src="transcript.js?v=11"></script>
+<script src="speakers.js?v=11"></script>
+<script src="gemini.js?v=11"></script>
+<script src="edits.js?v=11"></script>
+<script src="progress.js?v=11"></script>
+<script src="quality.js?v=11"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '10', APP_DATE = '2026-10-20';
+  var APP_VERSION = '11', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -156,7 +161,7 @@
   }
   checkLatest();
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLatest(); });
-  var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers, Ed = window.Edits, Pr = window.Progress;
+  var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers, Ed = window.Edits, Pr = window.Progress, Q = window.Quality;
   var state = { file: null, audio: null, pieces: [], segments: [], fp: null, suggestions: null, suggestError: '' };
   // localStorage can be missing or throw (private mode); progress saving then silently does nothing.
   var LS = (function () {
@@ -277,7 +282,7 @@
     var saved = Pr.load(LS, fp);
     if (saved.final && saved.final.length && !confirm('This replaces your saved transcript and any edits you made. Continue?')) return;
 
-    var results = new Array(pieces.length), failed = false;
+    var results = new Array(pieces.length), firstError = null;
     pieces.forEach(function (p) {
       var r = saved.pieces[p.index];
       if (r && r.segments) results[p.index] = r;
@@ -291,7 +296,7 @@
     pieces.forEach(function (p) { setStatus(p.index, results[p.index] ? 'saved ✓' : 'waiting'); });
 
     function worker() {
-      if (failed || next >= todo.length) return Promise.resolve();
+      if (next >= todo.length) return Promise.resolve();
       var p = todo[next++];
       var r = audio.cut(p.startSec, p.endSec);
       var blob = new Blob([r.data], { type: audio.mime });
@@ -303,12 +308,14 @@
           setStatus(p.index, 'done (' + results[p.index].segments.length + ')');
           $('bar').style.width = (++done / pieces.length * 100) + '%';
         })
-        .catch(function (e) { setStatus(p.index, 'failed'); failed = true; throw e; })
+        // Keep going with the other pieces so as much as possible is saved; report the failure at the end.
+        .catch(function (e) { setStatus(p.index, 'failed'); if (!firstError) firstError = e; })
         .then(worker);
     }
 
     var lanes = []; for (var i = 0; i < Math.min(2, todo.length); i++) lanes.push(worker());
     Promise.all(lanes).then(function () {
+      if (firstError) throw firstError;
       $('bar').style.width = '100%';
       var resolver = $('useAi').checked && pieces.length > 1
         ? function (req) {
@@ -332,6 +339,8 @@
     var unid = state.segments.filter(function (g) { return g.speaker === Sp.UNID; }).length;
     var note = [];
     if (unid) note.push(unid + ' of ' + state.segments.length + ' segments are "' + Sp.UNID + '".');
+    var flagged = Q.flags(state.segments), nFlag = Object.keys(flagged).length;
+    if (nFlag) note.push('⚠ ' + nFlag + ' line' + (nFlag === 1 ? '' : 's') + ' flagged for review.');
     (warnings || []).forEach(function (w) { note.push(w); });
     var n = document.createElement('p'); n.className = 'muted'; n.textContent = note.join(' '); n.hidden = !note.length; out.appendChild(n);
     state.segments.forEach(function (g, i) {
@@ -344,7 +353,12 @@
       var eb = document.createElement('button'); eb.type = 'button'; eb.className = 'edit'; eb.textContent = 'Edit'; eb.setAttribute('data-edit', i);
       m.appendChild(eb);
       var t = document.createElement('div'); t.className = 'text'; t.textContent = g.text;
-      d.appendChild(m); d.appendChild(t); out.appendChild(d);
+      d.appendChild(m); d.appendChild(t);
+      if (flagged[i]) {
+        d.className += ' flagged';
+        var fl = document.createElement('span'); fl.className = 'flag'; fl.textContent = '⚠ Check: ' + Q.describe(flagged[i]); d.appendChild(fl);
+      }
+      out.appendChild(d);
     });
     $('outCard').hidden = false;
     if (!quiet) $('outCard').scrollIntoView({ behavior: 'smooth' });
@@ -365,14 +379,40 @@
     ta.rows = Math.min(10, Math.max(2, Math.ceil(ta.value.length / 36)));
     var bar = document.createElement('div'); bar.className = 'editBar';
     var save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save';
+    var split = document.createElement('button'); split.type = 'button'; split.className = 'secondary'; split.textContent = 'Split here';
     var del = document.createElement('button'); del.type = 'button'; del.className = 'danger'; del.textContent = 'Delete line';
+    var isFlagged = !!Q.flags(state.segments)[i];
+    var ok = document.createElement('button'); ok.type = 'button'; ok.className = 'secondary'; ok.textContent = 'Mark OK';
+    var hint = document.createElement('div'); hint.className = 'editHint';
+    hint.textContent = 'To split: tap in the text where the new line should start, then “Split here”.';
     var cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel';
-    bar.appendChild(save); bar.appendChild(cancel); bar.appendChild(del);
+    bar.appendChild(save); bar.appendChild(cancel); bar.appendChild(split);
+    if (isFlagged) bar.appendChild(ok);
+    bar.appendChild(del);
     textDiv.hidden = true; btn.hidden = true;
-    seg.appendChild(ta); seg.appendChild(bar);
+    seg.appendChild(ta); seg.appendChild(bar); seg.appendChild(hint);
+    var flagEl = seg.querySelector('.flag'); if (flagEl) flagEl.hidden = true;
+    // iOS may drop the caret when a button is tapped, so remember the last caret position.
+    var caret = -1;
+    ['keyup', 'click', 'select', 'input', 'touchend'].forEach(function (ev) {
+      ta.addEventListener(ev, function () { setTimeout(function () { caret = ta.selectionStart; }, 0); });
+    });
+    [split, ok].forEach(function (b) { b.addEventListener('mousedown', function (e) { e.preventDefault(); }); });
     ta.focus();
-    function close() { ta.remove(); bar.remove(); textDiv.hidden = false; btn.hidden = false; }
+    function close() { ta.remove(); bar.remove(); hint.remove(); textDiv.hidden = false; btn.hidden = false; if (flagEl) flagEl.hidden = false; }
     cancel.addEventListener('click', close);
+    split.addEventListener('click', function () {
+      var pos = document.activeElement === ta ? ta.selectionStart : caret;
+      var prev = state.segments, next = Ed.splitLine(prev, i, ta.value, pos);
+      if (next === prev) { hint.textContent = 'Tap inside the text first (not at the very start or end), then “Split here”.'; hint.style.color = 'var(--bad)'; ta.focus(); return; }
+      state.segments = next;
+      persistFinal(); renderOutput([], true);
+      showUndo(prev, 'Line split. Tap a speaker name to change who said each part.');
+    });
+    ok.addEventListener('click', function () {
+      state.segments = Ed.markOk(state.segments, i);
+      persistFinal(); renderOutput([], true);
+    });
     del.addEventListener('click', function () {
       var prev = state.segments;
       state.segments = Ed.removeLine(prev, i);

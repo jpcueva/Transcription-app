@@ -14,4 +14,8 @@ test('page version, version.json and script cache-busters agree', () => {
   const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
   assert.ok(scripts.length >= 6);
   scripts.forEach((s) => assert.equal(s.split('?v=')[1], json.version, s));
+  const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
+  const top = /^## v(\S+)/m.exec(changelog);
+  assert.ok(top, 'CHANGELOG.md has no "## vN" entry');
+  assert.equal(top[1], json.version, 'newest CHANGELOG.md entry must match version.json');
 });

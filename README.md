@@ -11,7 +11,8 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
 - `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, new numbers for anyone unmatched)
-- `edits.js` – rename / merge speakers, move single lines, edit line text (pure functions)
+- `edits.js` – rename / merge speakers, move single lines, edit / split / delete lines, mark reviewed (pure functions)
+- `quality.js` – flags lines that look like model mistakes (impossibly fast speech, repeated text)
 - `progress.js` – saves finished pieces and the edited transcript in the browser so an interrupted run can resume
 - `gemini.js` – the only file that calls the Gemini API. Transcription uses the Interactions API (`POST /v1beta/interactions`) with
   `transcription_config` for speaker diarization + word timestamps (field names from the google-genai SDK and the Gemini cookbook);
@@ -27,7 +28,10 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
 `index.html`, `version.json`, and every `<script src="...?v=N">` together — `test/version.test.js` enforces this.
 
 ## Test
-`node --test test/*.test.js`
+- Unit tests: `node --test test/*.test.js`
+- Browser tests (Playwright + Chromium, Gemini mocked): `node test/browser/basic.js && node test/browser/editing.js`
+
+See `AGENTS.md` for a hand-off summary and `CHANGELOG.md` for the history and reasoning behind each change.
 
 ## How speakers are matched
 1. Each piece is transcribed on its own, so its labels are local.
@@ -42,7 +46,11 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
    (Gemini's limit of 8 applies per piece, not per meeting).
 
 ## Editing and saved progress
-- Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports), or **Delete line** (an Undo bar appears for 10 seconds).
+- Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports),
+  **Split here** at the caret (e.g. a question and someone else's answer in one line), or **Delete line**
+  (an Undo bar appears for 10 seconds).
+- Lines that look like model mistakes are marked **⚠ Check**: impossibly fast speech (> 6 words/s) or text that
+  repeats an earlier passage. **Mark OK** in the edit box clears the flag.
 - Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
   Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,
   being addressed by name); it runs the first time you open the sheet and is cached.

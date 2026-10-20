@@ -188,20 +188,28 @@
 
   // Text-only: decide which already-known speaker each unmatched label is. No audio is sent.
   function resolveSpeakers(opts) {
-    var fmt = function (list) {
-      return list.map(function (x) {
-        return '## ' + x.label + '\n' + (x.samples.length ? x.samples.map(function (s) { return '- ' + s.text; }).join('\n') : '- (no sample lines)');
-      }).join('\n\n');
-    };
+    var t = function (sec) { return sec == null ? '?' : Math.floor(sec / 60) + ':' + String(Math.floor(sec % 60)).padStart(2, '0'); };
+    var lines = function (list) { return (list || []).map(function (s) { return '- [' + t(s.start) + '] ' + s.text; }).join('\n'); };
+    var known = opts.canonical.map(function (x) {
+      return '## ' + x.label + ' (last spoke at ' + t(x.lastSeen) + ')\nSample lines:\n' + (lines(x.samples) || '- (none)') +
+        '\nTheir last lines so far:\n' + (lines(x.lastLines) || '- (none)');
+    }).join('\n\n');
+    var unmatched = opts.unresolved.map(function (x) {
+      var cues = (x.cues || []).map(function (c) { return '- [' + t(c.start) + '] ' + c.speaker + ': ' + c.text; }).join('\n');
+      return '## ' + x.label + ' (first speaks at ' + t(x.firstSeen) + ')\nWhat was said just before they spoke:\n' + (cues || '- (nothing)') +
+        '\nTheir lines:\n' + (lines(x.samples) || '- (none)');
+    }).join('\n\n');
     var prompt =
       'Several people spoke in a long recording that was transcribed in separate parts, so speaker labels are not ' +
-      'consistent between parts. Below are KNOWN speakers with sample lines, then UNMATCHED labels from a later part ' +
-      'with their lines. For each unmatched label, say which known speaker it is. Use every clue: being addressed by ' +
-      'name or introducing themselves, their role (host, presenter, guest, IT, etc.), who they reply to, the topics ' +
-      'they talk about, and their vocabulary and speaking style. Answer with the exact known label when the clues ' +
-      'reasonably point to one person. Answer "NEW" when it looks like someone not listed or when you are genuinely ' +
-      'unsure; a new person will get a new number that the user can merge later.\n\n# KNOWN\n' + fmt(opts.canonical) +
-      '\n\n# UNMATCHED\n' + fmt(opts.unresolved);
+      'consistent between parts. Below are KNOWN speakers, then UNMATCHED labels from a later part. For each unmatched ' +
+      'label, say which known speaker it is. Use every clue: being addressed by name or introducing themselves, their ' +
+      'role (host, presenter, guest, IT, etc.), who they reply to, the topics they talk about, and their vocabulary and ' +
+      'speaking style. Two clues outweigh topic and style: (1) if the line just before they speak calls on someone by ' +
+      'name ("Juan, good question", "Axel."), they are that person, so they are NEW unless a known speaker clearly has ' +
+      'that name; (2) a known speaker who said they were leaving, or who has not spoken for a long time, should only be ' +
+      'matched on strong evidence. Answer with the exact known label when the clues reasonably point to one person. ' +
+      'Answer "NEW" when it looks like someone not listed or when you are genuinely unsure; a new person gets a new ' +
+      'number that the user can merge later.\n\n# KNOWN\n' + known + '\n\n# UNMATCHED\n' + unmatched;
     var schema = {
       type: 'ARRAY',
       items: { type: 'OBJECT', properties: { label: { type: 'STRING' }, match: { type: 'STRING' } }, required: ['label', 'match'] }

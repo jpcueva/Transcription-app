@@ -128,22 +128,22 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=11"></script>
-<script src="m4a.js?v=11"></script>
-<script src="audiofile.js?v=11"></script>
-<script src="transcript.js?v=11"></script>
-<script src="speakers.js?v=11"></script>
-<script src="gemini.js?v=11"></script>
-<script src="edits.js?v=11"></script>
-<script src="progress.js?v=11"></script>
-<script src="quality.js?v=11"></script>
+<script src="mp3split.js?v=12"></script>
+<script src="m4a.js?v=12"></script>
+<script src="audiofile.js?v=12"></script>
+<script src="transcript.js?v=12"></script>
+<script src="speakers.js?v=12"></script>
+<script src="gemini.js?v=12"></script>
+<script src="edits.js?v=12"></script>
+<script src="progress.js?v=12"></script>
+<script src="quality.js?v=12"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '11', APP_DATE = '2026-10-20';
+  var APP_VERSION = '12', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });

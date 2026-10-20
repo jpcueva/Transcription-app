@@ -76,6 +76,24 @@
       .map(function (s) { return { start: s.start, text: s.text.slice(0, 200) }; });
   }
 
+  // Last few lines of a speaker across everything resolved so far (shows e.g. "I need to drop off").
+  function lastLines(segs, label, count) {
+    return segs.filter(function (s) { return s.speaker === label; }).slice(-count)
+      .map(function (s) { return { start: s.start, text: s.text.slice(0, 200) }; });
+  }
+
+  // The line said just before each of a speaker's first turns: hosts call people by name ("Juan, good question").
+  function cuesFor(segs, label, mapping, count) {
+    var out = [];
+    for (var i = 1; i < segs.length && out.length < count; i++) {
+      var s = segs[i], prev = segs[i - 1];
+      if (s.speaker !== label || prev.speaker === label) continue;
+      var who = isUnid(prev.speaker) ? 'unknown' : mapping[prev.speaker] || 'another unmatched speaker';
+      out.push({ start: prev.start, speaker: who, text: prev.text.slice(-200) });
+    }
+    return out;
+  }
+
   function nextLabel(known) {
     for (var n = 1; ; n++) if (known.indexOf('Speaker ' + n) < 0) return 'Speaker ' + n;
   }
@@ -134,9 +152,17 @@
         finish(i, d.mapping);
         return step(i + 1);
       }
+      var done = [];
+      out.forEach(function (p) { done = done.concat(p.segments); });
       var request = {
-        canonical: Object.keys(registry).map(function (l) { return { label: l, samples: registry[l] }; }),
-        unresolved: d.unresolved.map(function (l) { return { label: l, samples: samplesFor(segs, l, 4) }; })
+        canonical: Object.keys(registry).map(function (l) {
+          var last = lastLines(done, l, 2);
+          return { label: l, samples: registry[l], lastLines: last, lastSeen: last.length ? last[last.length - 1].start : null };
+        }),
+        unresolved: d.unresolved.map(function (l) {
+          var first = segs.filter(function (x) { return x.speaker === l; })[0];
+          return { label: l, samples: samplesFor(segs, l, 4), firstSeen: first ? first.start : null, cues: cuesFor(segs, l, d.mapping, 4) };
+        })
       };
       return Promise.resolve().then(function () { return opts.resolver(request); }).then(function (answer) {
         d.unresolved.forEach(function (l) {

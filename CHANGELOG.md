@@ -3,6 +3,18 @@
 Every release bumps the version shown in the app (see "Releasing" in `AGENTS.md`). Each entry records what
 changed **and why**, so the reasoning survives a hand-off to another person or AI. Newest first.
 
+## v12 — 2026-10-20
+- **Better context for AI speaker matching between pieces** (matching stays broad: names, roles, topics, style).
+  For each unmatched speaker the AI now also sees *the line said just before each of their first turns* and when
+  they first speak; for each known speaker, *when they last spoke and their last lines*. The prompt tells it that
+  someone called on by a new name ("Juan, good question") is a new person, and that a speaker who said they were
+  leaving (or has been silent for long) needs strong evidence to match.
+  *Why:* in a real 58-min meeting the AI only saw a few sample lines per speaker, so it matched Juan (piece 3) to
+  Evelyn because of a similar topic, and an IT answer at 52:55 to Karthik — who had said "I need to drop off" at
+  31:37 — because of the IT topic. Both clues were in the transcript but not in the prompt.
+- Not fixable by this change (Gemini's own diarization inside one piece): Justin given Mai's label (28:00), a
+  Bjorne line labelled Karthik (34:24), and two people in one line (14:41). Use Move line / Split for those.
+
 ## v11 — 2026-10-20
 - **Review flags (⚠).** Lines that are probably model mistakes are marked "Check: …": *very fast speech*
   (> 6 words/s on lines of 12+ words) and *repeats earlier text* (≥ 60 % of the line's 5-word phrases already

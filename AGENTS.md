@@ -35,6 +35,8 @@ labels, joins the pieces, matches speakers across pieces, and lets the user fix 
 - Never collapse different people into one label. Unmatched speakers get a new number; "Unidentified speaker" only
   when Gemini returned no speaker.
 - AI speaker matching uses names, roles, topics and style (user preference: less manual work), "NEW" when unsure.
+  It also gets the line spoken just before each unmatched speaker's turns and each known speaker's last lines/time.
+- Errors from Gemini's diarization *within* one piece cannot be fixed by matching; the user fixes them with Move line / Split.
 - No overall speaker cap. Destructive actions use Undo, not confirm dialogs (except replacing a saved transcript).
 - API key stays on the device; a key-holding server function was intentionally postponed.
 

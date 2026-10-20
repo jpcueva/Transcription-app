@@ -113,3 +113,23 @@ test('chains across three pieces', async () => {
   assert.equal(pieces[2].segments[0].speaker, 'Speaker 2');
   assert.equal(pieces[2].segments.at(-1).speaker, 'Speaker 1');
 });
+
+test('the AI resolver sees who was called on and when known speakers last spoke', async () => {
+  const ps = twoPieces(false);
+  ps[0].segments.push(seg(1330, 'Speaker 2', 'I need to drop off for another meeting, ping me in the chat'));
+  ps[1].segments.push(
+    seg(1600, 'Speaker 1', 'Fantastic. Juan, good question.'),
+    seg(1606, 'Speaker 3', 'I love to see citizen developers create something tangible like this'),
+    seg(1650, 'Speaker 1', 'Thanks. Anyone else?'),
+    seg(1655, 'Speaker 3', 'how do we scale it up when a whole department wants to use the app'));
+  let req;
+  await resolve(ps, { resolver: async (r) => { req = r; return {}; } });
+  const juan = req.unresolved.find((u) => u.label === 'Speaker 3');
+  assert.equal(juan.firstSeen, 1606);
+  assert.equal(juan.cues[0].text, 'Fantastic. Juan, good question.');
+  assert.equal(juan.cues[0].speaker, 'Speaker 1'); // already mapped, so the canonical label is shown
+  assert.equal(juan.cues.length, 2);
+  const s2 = req.canonical.find((c) => c.label === 'Speaker 2');
+  assert.match(s2.lastLines.at(-1).text, /drop off/);
+  assert.equal(s2.lastSeen, 1330);
+});

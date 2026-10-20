@@ -100,3 +100,25 @@ test('progress: keeps only the 5 most recent files and survives a full or broken
   assert.equal(P.savePiece(bad, 'tx:a', 0, {}), false);
   assert.deepEqual(P.load(bad, 'tx:a').pieces, {});
 });
+
+test('applyNames names numbered speakers, keeps user names, merges equal names', () => {
+  const s = [
+    { start: 1, speaker: 'Bjorne', text: 'a' }, { start: 2, speaker: 'Speaker 2', text: 'b' },
+    { start: 3, speaker: 'Speaker 3', text: 'c' }, { start: 4, speaker: 'Speaker 8', text: 'd' },
+    { start: 5, speaker: 'Speaker 9', text: 'e' }, { start: 6, speaker: 'Unidentified speaker', text: 'f' }
+  ];
+  const sug = {
+    Bjorne: [{ name: 'Someone Else' }],               // user-given name: untouched
+    'Speaker 2': [{ name: 'Karthik' }, { name: 'Tim' }],
+    'Speaker 3': [{ name: 'Anusha' }],
+    'Speaker 8': [{ name: '  Anusha ' }],              // same person in another part -> merged
+    'Speaker 9': [],                                    // no evidence -> stays numbered
+    'Unidentified speaker': [{ name: 'X' }]
+  };
+  const { segments, applied } = E.applyNames(s, sug);
+  assert.deepEqual(segments.map((x) => x.speaker), ['Bjorne', 'Karthik', 'Anusha', 'Anusha', 'Speaker 9', 'Unidentified speaker']);
+  assert.deepEqual(applied, [{ from: 'Speaker 2', to: 'Karthik' }, { from: 'Speaker 3', to: 'Anusha' }, { from: 'Speaker 8', to: 'Anusha' }]);
+  assert.equal(s[1].speaker, 'Speaker 2'); // not mutated
+  assert.deepEqual(E.applyNames(s, {}).applied, []);
+  assert.deepEqual(E.applyNames(s, null).applied, []);
+});

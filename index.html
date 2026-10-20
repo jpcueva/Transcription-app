@@ -108,7 +108,8 @@
     <button class="secondary" id="dlTxt">TXT</button>
     <button class="secondary" id="dlSrt">SRT</button>
   </div>
-  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct, split or delete a line. Lines marked ⚠ look like model mistakes worth checking.</p>
+  <button id="nameAll" style="margin-bottom:10px">Name all speakers</button>
+  <p class="muted hint">Tap <b>Name all speakers</b> to use names said in the conversation, or tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct, split or delete a line. Lines marked ⚠ look like model mistakes worth checking.</p>
   <div id="out"></div>
 </div>
 
@@ -128,22 +129,22 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=13"></script>
-<script src="m4a.js?v=13"></script>
-<script src="audiofile.js?v=13"></script>
-<script src="transcript.js?v=13"></script>
-<script src="speakers.js?v=13"></script>
-<script src="gemini.js?v=13"></script>
-<script src="edits.js?v=13"></script>
-<script src="progress.js?v=13"></script>
-<script src="quality.js?v=13"></script>
+<script src="mp3split.js?v=14"></script>
+<script src="m4a.js?v=14"></script>
+<script src="audiofile.js?v=14"></script>
+<script src="transcript.js?v=14"></script>
+<script src="speakers.js?v=14"></script>
+<script src="gemini.js?v=14"></script>
+<script src="edits.js?v=14"></script>
+<script src="progress.js?v=14"></script>
+<script src="quality.js?v=14"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '13', APP_DATE = '2026-10-20';
+  var APP_VERSION = '14', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -268,7 +269,7 @@
   var undo = { prev: null, timer: null };
   function hideToast() { $('toast').hidden = true; undo.prev = null; clearTimeout(undo.timer); }
   function showUndo(prev, text) {
-    undo.prev = prev; $('toastText').textContent = text; $('toast').hidden = false;
+    undo.prev = prev; $('toastText').textContent = text; $('toast').hidden = false; $('toastUndo').hidden = !prev;
     clearTimeout(undo.timer); undo.timer = setTimeout(hideToast, 10000);
   }
   $('toastUndo').addEventListener('click', function () {
@@ -497,16 +498,41 @@
     });
   }
 
-  function loadSuggestions() {
+  // One name-suggestion call per transcript, shared by the speaker sheet and "Name all speakers".
+  var pendingSuggest = null;
+  function fetchSuggestions() {
+    if (state.suggestions && state.suggestions !== 'loading') return Promise.resolve(state.suggestions);
+    if (pendingSuggest) return pendingSuggest;
     var key = $('key').value.trim();
-    if (state.suggestions || !key) { if (!key) state.suggestError = 'enter your API key first'; return renderSheet(); }
+    if (!key) { state.suggestError = 'enter your API key first'; return Promise.reject(new Error(state.suggestError)); }
     state.suggestions = 'loading'; state.suggestError = '';
-    renderSheet();
-    window.Gemini.suggestNames({ key: key, model: $('cleanModel').value.trim(), segments: state.segments })
-      .then(function (map) { state.suggestions = map; })
-      .catch(function (e) { state.suggestions = null; state.suggestError = e.message; })
-      .then(function () { if (sheet.index >= 0) renderSheet(); });
+    pendingSuggest = window.Gemini.suggestNames({ key: key, model: $('cleanModel').value.trim(), segments: state.segments })
+      .then(function (map) { state.suggestions = map; return map; })
+      .catch(function (e) { state.suggestions = null; state.suggestError = e.message; throw e; })
+      .finally(function () { pendingSuggest = null; if (sheet.index >= 0) renderSheet(); });
+    return pendingSuggest;
   }
+  function loadSuggestions() {
+    var p = fetchSuggestions();
+    renderSheet();
+    p.catch(function () {});
+  }
+
+  $('nameAll').addEventListener('click', function () {
+    var b = $('nameAll');
+    b.disabled = true; b.textContent = 'Finding names in the conversation…';
+    fetchSuggestions().then(function (map) {
+      var prev = state.segments, res = Ed.applyNames(prev, map);
+      if (!res.applied.length) { showUndo(null, 'No names were mentioned for the numbered speakers.'); return; }
+      state.segments = res.segments;
+      persistFinal(); renderOutput([], true);
+      var n = res.applied.length;
+      showUndo(prev, 'Named ' + n + ' speaker' + (n === 1 ? '' : 's') + ': ' +
+        res.applied.map(function (a) { return a.from.replace('Speaker ', '#') + '→' + a.to; }).join(', '));
+    }).catch(function (e) {
+      showUndo(null, 'Could not get names: ' + e.message);
+    }).then(function () { b.disabled = false; b.textContent = 'Name all speakers'; });
+  });
 
   function openSheet(index) {
     sheet.index = index;

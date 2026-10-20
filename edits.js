@@ -71,6 +71,25 @@
     return segments.map(function (s, i) { return i === index ? Object.assign({}, s, { ok: true }) : s; });
   }
 
+  /**
+   * Apply the best suggested name to every still-numbered speaker ("Speaker 4"). Names the user already gave and
+   * "Unidentified speaker" are left alone. Two speakers given the same name are merged, as with a manual rename.
+   * @param suggestions {label: [{name}]} best first
+   * @returns {{segments, applied: [{from, to}]}}
+   */
+  function applyNames(segments, suggestions) {
+    var applied = [], out = segments;
+    stats(segments).forEach(function (sp) {
+      if (!/^Speaker \d+$/.test(sp.label)) return;
+      var best = (suggestions && suggestions[sp.label] || [])[0];
+      var name = best && clean(best.name);
+      if (!name || name === sp.label) return;
+      out = rename(out, sp.label, name);
+      applied.push({ from: sp.label, to: name });
+    });
+    return { segments: out, applied: applied };
+  }
+
   /** Remove one line. */
   function removeLine(segments, index) {
     if (!segments[index]) return segments;
@@ -84,7 +103,7 @@
       .map(function (s) { return { start: s.start, text: s.text.length > maxChars ? s.text.slice(0, maxChars - 1) + '…' : s.text }; });
   }
 
-  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, editText: editText, splitLine: splitLine, markOk: markOk, removeLine: removeLine, sampleLines: sampleLines };
+  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, editText: editText, splitLine: splitLine, markOk: markOk, applyNames: applyNames, removeLine: removeLine, sampleLines: sampleLines };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Edits = api;
 })(typeof self !== 'undefined' ? self : this);

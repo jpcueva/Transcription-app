@@ -51,6 +51,8 @@ See `AGENTS.md` for a hand-off summary and `CHANGELOG.md` for the history and re
   (an Undo bar appears for 10 seconds).
 - Lines that look like model mistakes are marked **⚠ Check**: impossibly fast speech (> 6 words/s) or text that
   repeats an earlier passage. **Mark OK** in the edit box clears the flag.
+- **Name all speakers** applies the best name suggestion to every still-numbered speaker at once (your own names are
+  kept; two numbers given the same name are merged; Undo available).
 - Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
   Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,
   being addressed by name); it runs the first time you open the sheet and is cached.

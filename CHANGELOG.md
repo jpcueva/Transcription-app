@@ -3,6 +3,14 @@
 Every release bumps the version shown in the app (see "Releasing" in `AGENTS.md`). Each entry records what
 changed **and why**, so the reasoning survives a hand-off to another person or AI. Newest first.
 
+## v14 — 2026-10-20
+- **Name all speakers** button above the transcript. One name-suggestion call (shared with the speaker sheet and
+  cached) gives every still-numbered speaker ("Speaker 4") its best suggested name; names the user already typed
+  and "Unidentified speaker" are never changed. Two numbers that get the same name are merged (e.g. Anusha split
+  across two parts). An Undo bar lists what was renamed ("#2→Karthik, #8→Anusha").
+  *Why:* on a 58-min meeting with 11 speakers the user had only renamed one; the host names almost everyone before
+  they speak, so the suggestions already contained most names — applying them one by one was the manual work left.
+
 ## v13 — 2026-10-20
 - **Flagged lines are left out of the AI matcher's context.** *Why:* in the real run of v12, Karthik's "last spoke"
   time came from Gemini's hallucinated repeat at 37:25, not from "I need to drop off for another meeting" at 31:37,

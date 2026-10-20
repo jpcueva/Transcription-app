@@ -60,7 +60,7 @@ async function mockGemini(ctx, opts = {}) {
     const reply = (data) => route.fulfill({ headers: cors, json: { candidates: [{ content: { parts: [{ text: JSON.stringify(data) }] } }] } });
     if (url.includes(':generateContent')) {
       const prompt = body.contents[0].parts[0].text;
-      if (prompt.includes('# TRANSCRIPT')) { m.suggestCalls++; return reply([{ label: 'Speaker 3', names: [{ name: 'Roman', evidence: '[0:32] host: "Roman."' }] }, { label: 'Speaker 1', names: [] }]); }
+      if (prompt.includes('# TRANSCRIPT')) { m.suggestCalls++; return reply([{ label: 'Speaker 3', names: [{ name: 'Roman', evidence: '[0:32] host: "Roman."' }] }, { label: 'Speaker 2', names: [{ name: 'Maria', evidence: '[1:02] "Maria, go ahead"' }] }, { label: 'Speaker 1', names: [] }]); }
       m.aiCalls++;
       return reply([{ label: 'Speaker 3', match: 'NEW' }]);
     }

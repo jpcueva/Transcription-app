@@ -26,6 +26,20 @@ const { launch, startServer, writeAudio, mockGemini, rows } = require('./helpers
       assert.deepEqual(m.lastBody.generation_config.transcription_config.mode, { type: 'verbatim', diarization_mode: 'speaker', timestamp_granularities: ['word'] });
       assert.deepEqual(errors, []);
       console.log(`ok ${kind}: 128 lines, consistent speakers across 3 pieces, guest = Speaker 3`);
+      // "Name all speakers": one suggestion call, numbered speakers renamed, unnamed ones stay, Undo restores
+      await page.click('#nameAll');
+      await page.waitForSelector('#toast:not([hidden])');
+      const named = await rows(page);
+      assert.deepEqual([...new Set(named.map((x) => x.who))].sort(), ['Maria', 'Roman', 'Speaker 1']);
+      assert.match(await page.textContent('#toastText'), /Named 2 speakers: #2→Maria, #3→Roman/);
+      assert.equal(m.suggestCalls, 1);
+      await page.click('#toastUndo');
+      assert.deepEqual([...new Set((await rows(page)).map((x) => x.who))].sort(), ['Speaker 1', 'Speaker 2', 'Speaker 3']);
+      await page.click('#nameAll'); // cached suggestions: no second call
+      await page.waitForSelector('#toast:not([hidden])');
+      assert.equal(m.suggestCalls, 1);
+      if (kind === 'm4a') await page.screenshot({ path: require('./helpers').TMP + '/nameall.png' });
+      console.log('ok name all: 2 speakers named from suggestions, undo, cached');
       await ctx.close();
     }
   } finally { await browser.close(); server.close(); }

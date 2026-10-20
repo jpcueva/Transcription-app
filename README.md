@@ -38,7 +38,7 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
 4. Anything still unplaced, and any speaker beyond "Max speakers", becomes "Unidentified speaker".
 
 ## Editing and saved progress
-- Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports).
+- Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports), or **Delete line** (an Undo bar appears for 10 seconds).
 - Up to 8 speakers are labelled (Gemini's diarization limit); any further voices become "Unidentified speaker".
 - Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
   Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,

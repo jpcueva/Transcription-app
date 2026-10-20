@@ -40,6 +40,11 @@
   .seg textarea { width:100%; font:inherit; padding:8px; border:1px solid var(--accent); border-radius:10px; background:var(--bg); color:var(--fg); resize:vertical; margin-top:4px; }
   .seg .editBar { display:flex; gap:8px; margin-top:6px; }
   .seg .editBar button { width:auto; padding:8px 16px; }
+  .seg .editBar .danger { margin-left:auto; background:transparent; color:var(--bad); border:1px solid var(--bad); }
+  .toast { position:fixed; left:12px; right:12px; bottom:max(14px, env(safe-area-inset-bottom)); max-width:696px; margin:0 auto; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:10px;
+           background:#1c1c1e; color:#fff; border-radius:12px; padding:10px 12px 10px 16px; font-size:14px; box-shadow:0 4px 20px rgba(0,0,0,.3); }
+  .toast[hidden] { display:none; }
+  .toast button { width:auto; padding:6px 14px; background:#fff; color:#0a6cff; }
   .sheet { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10; display:flex; align-items:flex-end; justify-content:center; }
   .sheet[hidden] { display:none; }
   .sheetBody { background:var(--bg); width:100%; max-width:720px; max-height:88vh; overflow:auto; border-radius:18px 18px 0 0; padding:16px 16px max(20px, env(safe-area-inset-bottom)); }
@@ -99,9 +104,11 @@
     <button class="secondary" id="dlTxt">TXT</button>
     <button class="secondary" id="dlSrt">SRT</button>
   </div>
-  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct a line's text.</p>
+  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct a line's text or delete the line.</p>
   <div id="out"></div>
 </div>
+
+<div class="toast" id="toast" hidden><span id="toastText"></span><button id="toastUndo">Undo</button></div>
 
 <div class="sheet" id="sheet" hidden>
   <div class="sheetBody" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
@@ -117,21 +124,21 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=8"></script>
-<script src="m4a.js?v=8"></script>
-<script src="audiofile.js?v=8"></script>
-<script src="transcript.js?v=8"></script>
-<script src="speakers.js?v=8"></script>
-<script src="gemini.js?v=8"></script>
-<script src="edits.js?v=8"></script>
-<script src="progress.js?v=8"></script>
+<script src="mp3split.js?v=9"></script>
+<script src="m4a.js?v=9"></script>
+<script src="audiofile.js?v=9"></script>
+<script src="transcript.js?v=9"></script>
+<script src="speakers.js?v=9"></script>
+<script src="gemini.js?v=9"></script>
+<script src="edits.js?v=9"></script>
+<script src="progress.js?v=9"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '8', APP_DATE = '2026-10-20';
+  var APP_VERSION = '9', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -251,7 +258,19 @@
     $('outCard').hidden = true; $('saved').hidden = true;
     state.pieces.forEach(function (p) { setStatus(p.index, 'waiting'); });
   });
-  function persistFinal() { if (state.fp) Pr.saveFinal(LS, state.fp, state.segments); }
+  function persistFinal() { hideToast(); if (state.fp) Pr.saveFinal(LS, state.fp, state.segments); }
+
+  // Undo bar for deleted lines. Any other change hides it, so the saved copy always matches what is on screen.
+  var undo = { prev: null, timer: null };
+  function hideToast() { $('toast').hidden = true; undo.prev = null; clearTimeout(undo.timer); }
+  function showUndo(prev, text) {
+    undo.prev = prev; $('toastText').textContent = text; $('toast').hidden = false;
+    clearTimeout(undo.timer); undo.timer = setTimeout(hideToast, 10000);
+  }
+  $('toastUndo').addEventListener('click', function () {
+    if (!undo.prev) return;
+    state.segments = undo.prev; persistFinal(); renderOutput([], true);
+  });
 
   $('go').addEventListener('click', function () {
     var key = $('key').value.trim(), model = $('model').value.trim(), s = settings();
@@ -347,13 +366,20 @@
     ta.rows = Math.min(10, Math.max(2, Math.ceil(ta.value.length / 36)));
     var bar = document.createElement('div'); bar.className = 'editBar';
     var save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save';
+    var del = document.createElement('button'); del.type = 'button'; del.className = 'danger'; del.textContent = 'Delete line';
     var cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel';
-    bar.appendChild(save); bar.appendChild(cancel);
+    bar.appendChild(save); bar.appendChild(cancel); bar.appendChild(del);
     textDiv.hidden = true; btn.hidden = true;
     seg.appendChild(ta); seg.appendChild(bar);
     ta.focus();
     function close() { ta.remove(); bar.remove(); textDiv.hidden = false; btn.hidden = false; }
     cancel.addEventListener('click', close);
+    del.addEventListener('click', function () {
+      var prev = state.segments;
+      state.segments = Ed.removeLine(prev, i);
+      persistFinal(); renderOutput([], true);
+      showUndo(prev, 'Line at ' + fmt(prev[i].start) + ' deleted');
+    });
     save.addEventListener('click', function () {
       if (!ta.value.trim()) { ta.focus(); return; }
       var next = Ed.editText(state.segments, i, ta.value);

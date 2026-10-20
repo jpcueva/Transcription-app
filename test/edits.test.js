@@ -45,6 +45,13 @@ test('editText replaces one line, tidies whitespace, ignores empty and unchanged
   assert.equal(E.editText(segs, 9, 'x'), segs);
 });
 
+test('removeLine drops exactly one line without mutating', () => {
+  const out = E.removeLine(segs, 1);
+  assert.deepEqual(out.map((s) => s.start), [1, 15, 30]);
+  assert.equal(segs.length, 4);
+  assert.equal(E.removeLine(segs, 9), segs);
+});
+
 test('sampleLines skips very short lines and truncates', () => {
   const s = [{ start: 0, speaker: 'A', text: 'yes' }, { start: 1, speaker: 'A', text: 'this is a rather long line of speech' }];
   assert.deepEqual(E.sampleLines(s, 'A', 2, 12), [{ start: 1, text: 'this is a r…' }]);

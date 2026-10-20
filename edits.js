@@ -46,6 +46,12 @@
     return segments.map(function (s, i) { return i === index ? Object.assign({}, s, { text: t, edited: true }) : s; });
   }
 
+  /** Remove one line. */
+  function removeLine(segments, index) {
+    if (!segments[index]) return segments;
+    return segments.filter(function (s, i) { return i !== index; });
+  }
+
   /** A few representative lines of a speaker, so the person can recognise who it is. */
   function sampleLines(segments, label, count, maxChars) {
     return segments.filter(function (s) { return s.speaker === label && words(s.text) >= 4; })
@@ -53,7 +59,7 @@
       .map(function (s) { return { start: s.start, text: s.text.length > maxChars ? s.text.slice(0, maxChars - 1) + '…' : s.text }; });
   }
 
-  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, editText: editText, sampleLines: sampleLines };
+  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, editText: editText, removeLine: removeLine, sampleLines: sampleLines };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Edits = api;
 })(typeof self !== 'undefined' ? self : this);

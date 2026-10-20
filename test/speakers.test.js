@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { resolve, capSpeakers, UNID } = require('../speakers.js');
+const { resolve, UNID } = require('../speakers.js');
 
 const LINES = [
   'we should move the launch date to the second week of march',
@@ -37,11 +37,11 @@ test('identical labels stay identical', async () => {
   assert.deepEqual(pieces[1].segments.map((s) => s.speaker), ['Speaker 1', 'Speaker 2', 'Speaker 1', 'Speaker 2', 'Speaker 1', 'Speaker 2']);
 });
 
-test('a speaker silent in the overlap is Unidentified without a resolver', async () => {
+test('a speaker silent in the overlap gets the next number without a resolver', async () => {
   const ps = twoPieces(false);
   ps[1].segments.push(seg(1500, 'Speaker 3', 'a brand new voice speaking about something unrelated entirely'));
   const { pieces } = await resolve(ps);
-  assert.equal(pieces[1].segments.at(-1).speaker, UNID);
+  assert.equal(pieces[1].segments.at(-1).speaker, 'Speaker 3');
   assert.equal(pieces[1].segments.at(-1).rawSpeaker, 'Speaker 3');
 });
 
@@ -60,14 +60,16 @@ test('resolver can map to a known speaker or declare a new one', async () => {
   assert.deepEqual(last2, ['Speaker 2', 'Speaker 3']); // NEW gets the first unused number
 });
 
-test('a failing or lying resolver degrades to Unidentified', async () => {
+test('a failing, unsure or lying resolver gives a new number', async () => {
   const ps = twoPieces(false);
   ps[1].segments.push(seg(1500, 'Speaker 3', 'a brand new voice speaking about something unrelated entirely'));
   const failed = await resolve(ps, { resolver: async () => { throw new Error('boom'); } });
-  assert.equal(failed.pieces[1].segments.at(-1).speaker, UNID);
+  assert.equal(failed.pieces[1].segments.at(-1).speaker, 'Speaker 3');
   assert.match(failed.warnings[0], /part 2/);
+  const unsure = await resolve(ps, { resolver: async () => ({ 'Speaker 3': 'UNKNOWN' }) });
+  assert.equal(unsure.pieces[1].segments.at(-1).speaker, 'Speaker 3');
   const lied = await resolve(ps, { resolver: async () => ({ 'Speaker 3': 'Speaker 99' }) });
-  assert.equal(lied.pieces[1].segments.at(-1).speaker, UNID);
+  assert.equal(lied.pieces[1].segments.at(-1).speaker, 'Speaker 3');
 });
 
 test('ambiguous votes are not guessed', async () => {
@@ -76,7 +78,28 @@ test('ambiguous votes are not guessed', async () => {
   ps[1].segments = [seg(1256, 'Speaker 2', LINES[0]), seg(1266, 'Speaker 2', LINES[1])];
   ps[0].segments = [seg(1255, 'Speaker 1', LINES[0]), seg(1265, 'Speaker 2', LINES[1])];
   const { pieces } = await resolve(ps);
-  assert.deepEqual(pieces[1].segments.map((s) => s.speaker), [UNID, UNID]);
+  assert.deepEqual(pieces[1].segments.map((s) => s.speaker), ['Speaker 3', 'Speaker 3']); // new person, not a guess
+});
+
+test('several unmatched people never collapse into one label', async () => {
+  // Like a Q&A in the middle of a part: three people who never speak in an overlap.
+  const ps = twoPieces(false);
+  ps[1].segments.push(
+    seg(1500, 'Speaker 3', 'hi I think my question is similar to yours about the business process'),
+    seg(1600, 'Speaker 4', 'so the two hundred dollars is ambiguous what does that equate to'),
+    seg(1700, 'Speaker 5', 'can we have a lower limit for people who only use fifty dollars'),
+    seg(1800, '', 'muffled words with no speaker from the model'));
+  const { pieces } = await resolve(ps, { resolver: async () => ({ 'Speaker 3': 'UNKNOWN', 'Speaker 4': 'NEW' }) });
+  const last = pieces[1].segments.slice(-4).map((s) => s.speaker);
+  assert.deepEqual(last, ['Speaker 3', 'Speaker 4', 'Speaker 5', UNID]);
+});
+
+test('numbers stay unique across three pieces', async () => {
+  const p = twoPieces(false);
+  p[1].segments.push(seg(1500, 'Speaker 3', 'a brand new voice speaking about something unrelated entirely'));
+  const third = { startSec: 2500, endSec: 3840, segments: [seg(2700, 'Speaker 1', 'another new person speaking only in the last part'), seg(2800, 'Speaker 2', 'and yet another new person here at the end')] };
+  const { pieces } = await resolve([...p, third]);
+  assert.deepEqual(pieces[2].segments.map((s) => s.speaker), ['Speaker 4', 'Speaker 5']);
 });
 
 test('chains across three pieces', async () => {
@@ -89,13 +112,4 @@ test('chains across three pieces', async () => {
   // piece 2 raw "Speaker 1" == canonical "Speaker 2"; piece 3 raw "Speaker 2" == piece 2 raw "Speaker 1"
   assert.equal(pieces[2].segments[0].speaker, 'Speaker 2');
   assert.equal(pieces[2].segments.at(-1).speaker, 'Speaker 1');
-});
-
-test('capSpeakers demotes the quietest speakers', () => {
-  const segs = [
-    { start: 0, speaker: 'A', text: 'one two three four five six seven' }, { start: 1, speaker: 'B', text: 'one two three four five' },
-    { start: 2, speaker: 'C', text: 'one two' }, { start: 3, speaker: UNID, text: 'x' }
-  ];
-  assert.deepEqual(capSpeakers(segs, 2).map((s) => s.speaker), ['A', 'B', UNID, UNID]);
-  assert.deepEqual(capSpeakers(segs, 8).map((s) => s.speaker), ['A', 'B', 'C', UNID]);
 });

@@ -78,11 +78,11 @@
     <div><label for="maxMin">Max piece (min)</label><input id="maxMin" type="number" value="28" min="2" max="30"></div>
     <div><label for="ovSec">Overlap (sec)</label><input id="ovSec" type="number" value="90" min="0" max="600"></div>
   </div>
-  <p class="muted" style="margin:8px 0 0">Up to 8 speakers are labelled (Gemini's limit); any further voices are shown as “Unidentified speaker”.</p>
+  <p class="muted" style="margin:8px 0 0">Speakers are numbered in order of appearance. Someone who can't be matched between parts of a long recording gets a new number; join them with “Same person as…”.</p>
   <label for="cleanModel">Speaker-cleanup model (text only)</label>
   <input id="cleanModel" type="text" value="gemini-flash-latest" autocapitalize="off" autocorrect="off">
   <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:15px;color:var(--fg)">
-    <input id="useAi" type="checkbox" checked> Use AI to place speakers the overlap couldn't match
+    <input id="useAi" type="checkbox" checked> Use AI to match speakers between parts (only when a name makes it clear)
   </label>
 </div>
 
@@ -124,21 +124,21 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=9"></script>
-<script src="m4a.js?v=9"></script>
-<script src="audiofile.js?v=9"></script>
-<script src="transcript.js?v=9"></script>
-<script src="speakers.js?v=9"></script>
-<script src="gemini.js?v=9"></script>
-<script src="edits.js?v=9"></script>
-<script src="progress.js?v=9"></script>
+<script src="mp3split.js?v=10"></script>
+<script src="m4a.js?v=10"></script>
+<script src="audiofile.js?v=10"></script>
+<script src="transcript.js?v=10"></script>
+<script src="speakers.js?v=10"></script>
+<script src="gemini.js?v=10"></script>
+<script src="edits.js?v=10"></script>
+<script src="progress.js?v=10"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '9', APP_DATE = '2026-10-20';
+  var APP_VERSION = '10', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -156,7 +156,6 @@
   }
   checkLatest();
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLatest(); });
-  var MAX_SPEAKERS = 8; // Gemini diarization limit; extra voices become "Unidentified speaker"
   var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers, Ed = window.Edits, Pr = window.Progress;
   var state = { file: null, audio: null, pieces: [], segments: [], fp: null, suggestions: null, suggestError: '' };
   // localStorage can be missing or throw (private mode); progress saving then silently does nothing.
@@ -318,7 +317,7 @@
         : null;
       return Sp.resolve(results, { resolver: resolver });
     }).then(function (res) {
-      state.segments = Sp.capSpeakers(T.join(res.pieces), MAX_SPEAKERS);
+      state.segments = T.join(res.pieces);
       state.suggestions = null; state.suggestError = '';
       persistFinal();
       renderOutput(res.warnings);

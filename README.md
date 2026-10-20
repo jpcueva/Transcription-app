@@ -10,7 +10,7 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `audiofile.js` – detects MP3 vs M4A from the file contents and gives the page one `open()/cut()` interface
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
-- `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)
+- `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, new numbers for anyone unmatched)
 - `edits.js` – rename / merge speakers, move single lines, edit line text (pure functions)
 - `progress.js` – saves finished pieces and the edited transcript in the browser so an interrupted run can resume
 - `gemini.js` – the only file that calls the Gemini API. Transcription uses the Interactions API (`POST /v1beta/interactions`) with
@@ -34,12 +34,15 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
 2. For every label in piece N, the words it said in the overlap with piece N-1 are compared with the words
    already-resolved speakers said there. A label is mapped only with ≥5 matched words and a clear winner (2× the runner-up).
 3. Labels left over (e.g. someone silent in the overlap) are sent, as text only, to a cheaper model together with sample
-   lines of the known speakers; it answers a known label, `NEW` or `UNKNOWN`. Can be switched off on the page.
-4. Anything still unplaced, and any speaker beyond "Max speakers", becomes "Unidentified speaker".
+   lines of the known speakers. It may only link them to a known speaker on clear evidence (e.g. addressed by the same
+   name); otherwise it answers `NEW`. Can be switched off on the page.
+4. Anything still unmatched gets the next free number ("Speaker 6"). Splitting one person in two is fixed with a single
+   "Same person as…" merge, whereas wrongly merging two people is hard to undo, so doubts always become new numbers.
+   "Unidentified speaker" is only used for lines where Gemini returned no speaker. There is no overall speaker cap
+   (Gemini's limit of 8 applies per piece, not per meeting).
 
 ## Editing and saved progress
 - Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports), or **Delete line** (an Undo bar appears for 10 seconds).
-- Up to 8 speakers are labelled (Gemini's diarization limit); any further voices become "Unidentified speaker".
 - Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
   Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,
   being addressed by name); it runs the first time you open the sheet and is cached.

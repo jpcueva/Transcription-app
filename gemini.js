@@ -196,9 +196,11 @@
     var prompt =
       'Several people spoke in a long recording that was transcribed in separate parts, so speaker labels are not ' +
       'consistent between parts. Below are KNOWN speakers with sample lines, then UNMATCHED labels from a later part ' +
-      'with their lines. For each unmatched label say which known speaker it is, using names, roles, topics, who is ' +
-      'addressed and speaking style. Answer with the exact known label, "NEW" if it is clearly someone not listed, or ' +
-      '"UNKNOWN" if you cannot tell. Do not guess.\n\n# KNOWN\n' + fmt(opts.canonical) + '\n\n# UNMATCHED\n' + fmt(opts.unresolved);
+      'with their lines. For each unmatched label, answer with the exact known label ONLY when the text gives clear ' +
+      'evidence that it is the same person: they are addressed by the same name, introduce themselves with that name, ' +
+      'or explicitly continue that person\'s own statement. Similar topics, vocabulary or speaking style are NOT ' +
+      'enough. In every other case answer "NEW". Wrongly merging two different people is much worse than leaving ' +
+      'one person split in two, so when in doubt answer "NEW".\n\n# KNOWN\n' + fmt(opts.canonical) + '\n\n# UNMATCHED\n' + fmt(opts.unresolved);
     var schema = {
       type: 'ARRAY',
       items: { type: 'OBJECT', properties: { label: { type: 'STRING' }, match: { type: 'STRING' } }, required: ['label', 'match'] }

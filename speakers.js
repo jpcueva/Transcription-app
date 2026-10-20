@@ -4,8 +4,10 @@
  * Each piece comes back with its own labels ("Speaker 1" in piece 2 may be "Speaker 2" in piece 1).
  * Consecutive pieces share an overlap, so both transcribe the same words there. For every label in
  * the later piece we count which already-resolved label said the same words in the overlap.
- * Labels with no clear winner go to an optional text-only resolver, and otherwise become
- * "Unidentified speaker". Works in the browser (window.Speakers) and in Node (module.exports).
+ * Labels with no clear winner go to an optional text-only resolver; anything still unmatched gets the
+ * next free number ("Speaker 6"). Splitting one person in two is fixed with one merge, while wrongly merging
+ * two people is hard to undo, so every doubt resolves to a new number. "Unidentified speaker" is only used
+ * when the model returned no speaker at all. Works in the browser (window.Speakers) and in Node (module.exports).
  */
 (function (root) {
   'use strict';
@@ -81,7 +83,7 @@
   /**
    * @param pieces [{startSec, endSec, segments:[{start,end,speaker,text}]}] on the global clock
    * @param opts   {resolver?: async ({canonical:[{label,samples}], unresolved:[{label,samples}]}) => {label: match}}
-   *               match is a canonical label, "NEW" (a person not heard before) or anything else = unknown
+   *               match is a canonical label; anything else ("NEW", "UNKNOWN") means a new numbered speaker
    * @returns {Promise<{pieces, warnings}>} pieces with `speaker` canonicalised and `rawSpeaker` kept
    */
   function resolve(pieces, opts) {
@@ -90,7 +92,7 @@
 
     function finish(i, mapping) {
       var segs = pieces[i].segments.map(function (s) {
-        var m = isUnid(s.speaker) ? UNID : mapping[s.speaker] || UNID;
+        var m = isUnid(s.speaker) ? UNID : mapping[s.speaker];
         return Object.assign({}, s, { speaker: m, rawSpeaker: s.speaker });
       });
       out.push({ startSec: pieces[i].startSec, endSec: pieces[i].endSec, segments: segs });
@@ -116,7 +118,19 @@
 
       var from = pieces[i].startSec, to = pieces[i - 1].endSec;
       var d = decide(labels, tally(out[i - 1].segments, segs, from, to));
+
+      // Every label still without a mapping becomes a new, unique number.
+      function numberRest() {
+        var known = Object.keys(registry);
+        Object.keys(d.mapping).forEach(function (k) { if (known.indexOf(d.mapping[k]) < 0) known.push(d.mapping[k]); });
+        labels.forEach(function (l) {
+          if (d.mapping[l]) return;
+          var nl = nextLabel(known); known.push(nl); d.mapping[l] = nl;
+        });
+      }
+
       if (!d.unresolved.length || !opts.resolver) {
+        numberRest();
         finish(i, d.mapping);
         return step(i + 1);
       }
@@ -125,16 +139,14 @@
         unresolved: d.unresolved.map(function (l) { return { label: l, samples: samplesFor(segs, l, 4) }; })
       };
       return Promise.resolve().then(function () { return opts.resolver(request); }).then(function (answer) {
-        var known = Object.keys(registry);
-        Object.keys(d.mapping).forEach(function (k) { if (known.indexOf(d.mapping[k]) < 0) known.push(d.mapping[k]); });
         d.unresolved.forEach(function (l) {
           var a = answer && answer[l];
-          if (a === 'NEW') { var nl = nextLabel(known); known.push(nl); d.mapping[l] = nl; }
-          else if (a && Object.keys(registry).indexOf(a) >= 0) d.mapping[l] = a;
+          if (a && Object.keys(registry).indexOf(a) >= 0) d.mapping[l] = a; // anything else ("NEW", "UNKNOWN", junk) -> new number
         });
       }).catch(function (e) {
         warnings.push('Speaker cleanup for part ' + (i + 1) + ' failed: ' + e.message);
       }).then(function () {
+        numberRest();
         finish(i, d.mapping);
         return step(i + 1);
       });
@@ -143,17 +155,7 @@
     return step(0);
   }
 
-  /** If more than maxSpeakers distinct speakers remain, the quietest ones become "Unidentified speaker". */
-  function capSpeakers(segments, maxSpeakers) {
-    var words = {};
-    segments.forEach(function (s) { if (!isUnid(s.speaker)) words[s.speaker] = (words[s.speaker] || 0) + tokens(s.text).n; });
-    var keep = Object.keys(words).sort(function (a, b) { return words[b] - words[a]; }).slice(0, maxSpeakers);
-    return segments.map(function (s) {
-      return isUnid(s.speaker) || keep.indexOf(s.speaker) >= 0 ? s : Object.assign({}, s, { speaker: UNID });
-    });
-  }
-
-  var api = { UNID: UNID, resolve: resolve, capSpeakers: capSpeakers };
+  var api = { UNID: UNID, resolve: resolve };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Speakers = api;
 })(typeof self !== 'undefined' ? self : this);

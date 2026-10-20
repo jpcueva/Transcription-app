@@ -34,6 +34,12 @@
   .seg .who { font:inherit; font-size:12px; font-weight:600; width:auto; display:inline; padding:2px 9px; margin-left:2px; border-radius:999px; background:var(--chip); color:var(--accent); border:0; }
   .seg .who.unid { color:var(--muted); font-style:italic; }
   .hint { margin:0 0 8px; }
+  .seg .meta { display:flex; align-items:center; gap:4px; }
+  .seg .edit { font:inherit; font-size:12px; width:auto; margin-left:auto; padding:2px 10px; border-radius:999px; background:transparent; color:var(--accent); border:1px solid var(--line); }
+  .seg .tag { font-size:11px; color:var(--muted); font-style:italic; }
+  .seg textarea { width:100%; font:inherit; padding:8px; border:1px solid var(--accent); border-radius:10px; background:var(--bg); color:var(--fg); resize:vertical; margin-top:4px; }
+  .seg .editBar { display:flex; gap:8px; margin-top:6px; }
+  .seg .editBar button { width:auto; padding:8px 16px; }
   .sheet { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:10; display:flex; align-items:flex-end; justify-content:center; }
   .sheet[hidden] { display:none; }
   .sheetBody { background:var(--bg); width:100%; max-width:720px; max-height:88vh; overflow:auto; border-radius:18px 18px 0 0; padding:16px 16px max(20px, env(safe-area-inset-bottom)); }
@@ -66,9 +72,8 @@
   <div class="row">
     <div><label for="maxMin">Max piece (min)</label><input id="maxMin" type="number" value="28" min="2" max="30"></div>
     <div><label for="ovSec">Overlap (sec)</label><input id="ovSec" type="number" value="90" min="0" max="600"></div>
-    <div><label for="spk">Max speakers</label><input id="spk" type="number" value="8" min="1" max="8"></div>
   </div>
-  <p class="muted" style="margin:8px 0 0">Voices beyond “Max speakers” are shown as “Unidentified speaker”. Leave it at 8; you can rename and merge speakers afterwards.</p>
+  <p class="muted" style="margin:8px 0 0">Up to 8 speakers are labelled (Gemini's limit); any further voices are shown as “Unidentified speaker”.</p>
   <label for="cleanModel">Speaker-cleanup model (text only)</label>
   <input id="cleanModel" type="text" value="gemini-flash-latest" autocapitalize="off" autocorrect="off">
   <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-size:15px;color:var(--fg)">
@@ -94,7 +99,7 @@
     <button class="secondary" id="dlTxt">TXT</button>
     <button class="secondary" id="dlSrt">SRT</button>
   </div>
-  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line.</p>
+  <p class="muted hint">Tap a speaker's name to rename them, merge two speakers, or fix a single line. Tap <b>Edit</b> to correct a line's text.</p>
   <div id="out"></div>
 </div>
 
@@ -112,21 +117,21 @@
 
 <p class="muted" style="text-align:center;margin-top:20px"><span id="versionInfo"></span> · <span id="versionStatus">checking…</span></p>
 
-<script src="mp3split.js?v=7"></script>
-<script src="m4a.js?v=7"></script>
-<script src="audiofile.js?v=7"></script>
-<script src="transcript.js?v=7"></script>
-<script src="speakers.js?v=7"></script>
-<script src="gemini.js?v=7"></script>
-<script src="edits.js?v=7"></script>
-<script src="progress.js?v=7"></script>
+<script src="mp3split.js?v=8"></script>
+<script src="m4a.js?v=8"></script>
+<script src="audiofile.js?v=8"></script>
+<script src="transcript.js?v=8"></script>
+<script src="speakers.js?v=8"></script>
+<script src="gemini.js?v=8"></script>
+<script src="edits.js?v=8"></script>
+<script src="progress.js?v=8"></script>
 <script>
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
 
   // Bump APP_VERSION, version.json and every script's ?v= together (test/version.test.js checks this).
-  var APP_VERSION = '7', APP_DATE = '2026-10-19';
+  var APP_VERSION = '8', APP_DATE = '2026-10-20';
   Array.prototype.forEach.call(document.querySelectorAll('.appVersion'), function (el) { el.textContent = APP_VERSION; });
   $('versionInfo').textContent = 'Version ' + APP_VERSION + ' · ' + APP_DATE;
   $('reload').addEventListener('click', function () { location.replace(location.pathname + '?r=' + Date.now()); });
@@ -144,6 +149,7 @@
   }
   checkLatest();
   document.addEventListener('visibilitychange', function () { if (!document.hidden) checkLatest(); });
+  var MAX_SPEAKERS = 8; // Gemini diarization limit; extra voices become "Unidentified speaker"
   var T = window.Transcript, A = window.AudioFile, Sp = window.Speakers, Ed = window.Edits, Pr = window.Progress;
   var state = { file: null, audio: null, pieces: [], segments: [], fp: null, suggestions: null, suggestError: '' };
   // localStorage can be missing or throw (private mode); progress saving then silently does nothing.
@@ -169,8 +175,7 @@
     return {
       maxSec: Math.min(30, Math.max(2, +$('maxMin').value || 28)) * 60,
       overlapSec: Math.max(0, +$('ovSec').value || 0),
-      model: $('model').value.trim(),
-      maxSpeakers: Math.min(8, Math.max(1, +$('spk').value || 8))
+      model: $('model').value.trim()
     };
   }
 
@@ -273,7 +278,7 @@
       var r = audio.cut(p.startSec, p.endSec);
       var blob = new Blob([r.data], { type: audio.mime });
       setStatus(p.index, 'working…');
-      return window.Gemini.transcribePiece({ key: key, model: model, blob: blob, name: state.file.name + ' part ' + (p.index + 1), maxSpeakers: s.maxSpeakers })
+      return window.Gemini.transcribePiece({ key: key, model: model, blob: blob, name: state.file.name + ' part ' + (p.index + 1) })
         .then(function (raw) {
           results[p.index] = { startSec: r.actualStartSec, endSec: r.actualEndSec, segments: T.normalize(raw, r.actualStartSec) };
           Pr.savePiece(LS, fp, p.index, results[p.index]);
@@ -294,7 +299,7 @@
         : null;
       return Sp.resolve(results, { resolver: resolver });
     }).then(function (res) {
-      state.segments = Sp.capSpeakers(T.join(res.pieces), s.maxSpeakers);
+      state.segments = Sp.capSpeakers(T.join(res.pieces), MAX_SPEAKERS);
       state.suggestions = null; state.suggestError = '';
       persistFinal();
       renderOutput(res.warnings);
@@ -317,16 +322,49 @@
       var w = document.createElement('button'); w.className = 'who' + (g.speaker === Sp.UNID ? ' unid' : ''); w.type = 'button';
       w.textContent = g.speaker || Sp.UNID; w.setAttribute('data-i', i);
       m.appendChild(document.createTextNode(fmt(g.start) + ' · ')); m.appendChild(w);
-      var t = document.createElement('div'); t.textContent = g.text;
+      if (g.edited) { var tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'edited'; m.appendChild(tag); }
+      var eb = document.createElement('button'); eb.type = 'button'; eb.className = 'edit'; eb.textContent = 'Edit'; eb.setAttribute('data-edit', i);
+      m.appendChild(eb);
+      var t = document.createElement('div'); t.className = 'text'; t.textContent = g.text;
       d.appendChild(m); d.appendChild(t); out.appendChild(d);
     });
     $('outCard').hidden = false;
     if (!quiet) $('outCard').scrollIntoView({ behavior: 'smooth' });
   }
   $('out').addEventListener('click', function (e) {
-    var b = e.target.closest ? e.target.closest('button.who') : null;
-    if (b) openSheet(+b.getAttribute('data-i'));
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    if (b.classList.contains('who')) openSheet(+b.getAttribute('data-i'));
+    else if (b.hasAttribute('data-edit')) startEdit(b);
   });
+
+  // ---- Edit the text of one line in place ----
+  function startEdit(btn) {
+    var i = +btn.getAttribute('data-edit'), seg = btn.closest('.seg'), textDiv = seg.querySelector('.text');
+    if (seg.querySelector('textarea')) return;
+    var ta = document.createElement('textarea');
+    ta.value = state.segments[i].text;
+    ta.rows = Math.min(10, Math.max(2, Math.ceil(ta.value.length / 36)));
+    var bar = document.createElement('div'); bar.className = 'editBar';
+    var save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save';
+    var cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = 'Cancel';
+    bar.appendChild(save); bar.appendChild(cancel);
+    textDiv.hidden = true; btn.hidden = true;
+    seg.appendChild(ta); seg.appendChild(bar);
+    ta.focus();
+    function close() { ta.remove(); bar.remove(); textDiv.hidden = false; btn.hidden = false; }
+    cancel.addEventListener('click', close);
+    save.addEventListener('click', function () {
+      if (!ta.value.trim()) { ta.focus(); return; }
+      var next = Ed.editText(state.segments, i, ta.value);
+      if (next === state.segments) return close();
+      state.segments = next;
+      persistFinal();
+      textDiv.textContent = next[i].text;
+      if (!seg.querySelector('.tag')) { var tag = document.createElement('span'); tag.className = 'tag'; tag.textContent = 'edited'; btn.parentNode.insertBefore(tag, btn); }
+      close();
+    });
+  }
 
   // ---- Speaker sheet: rename everywhere, merge, move one line, name suggestions ----
   var sheet = { index: -1, label: '' };

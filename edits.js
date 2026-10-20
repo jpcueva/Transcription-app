@@ -39,6 +39,13 @@
     return segments.map(function (s, i) { return i === index ? Object.assign({}, s, { speaker: to }) : s; });
   }
 
+  /** Replace the text of one line (whitespace tidied). Empty text is ignored; unchanged text is a no-op. */
+  function editText(segments, index, text) {
+    var t = String(text == null ? '' : text).replace(/[ \t]+/g, ' ').replace(/\s*\n\s*/g, ' ').trim();
+    if (!t || !segments[index] || segments[index].text === t) return segments;
+    return segments.map(function (s, i) { return i === index ? Object.assign({}, s, { text: t, edited: true }) : s; });
+  }
+
   /** A few representative lines of a speaker, so the person can recognise who it is. */
   function sampleLines(segments, label, count, maxChars) {
     return segments.filter(function (s) { return s.speaker === label && words(s.text) >= 4; })
@@ -46,7 +53,7 @@
       .map(function (s) { return { start: s.start, text: s.text.length > maxChars ? s.text.slice(0, maxChars - 1) + '…' : s.text }; });
   }
 
-  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, sampleLines: sampleLines };
+  var api = { clean: clean, stats: stats, rename: rename, moveLine: moveLine, editText: editText, sampleLines: sampleLines };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Edits = api;
 })(typeof self !== 'undefined' ? self : this);

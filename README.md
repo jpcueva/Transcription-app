@@ -11,7 +11,7 @@ and the pieces are joined into one timeline. Export as TXT or SRT.
 - `mp3split.js` – reads MP3 frame headers, plans equal-length overlapping pieces, returns byte ranges (no decoding)
 - `transcript.js` – timestamp shifting, joining pieces at overlap midpoints, TXT/SRT export
 - `speakers.js` – makes speaker labels consistent across pieces (overlap word matching, optional AI resolver, "Unidentified speaker" fallback, max-speaker cap)
-- `edits.js` – rename / merge speakers and move single lines (pure functions)
+- `edits.js` – rename / merge speakers, move single lines, edit line text (pure functions)
 - `progress.js` – saves finished pieces and the edited transcript in the browser so an interrupted run can resume
 - `gemini.js` – the only file that calls the Gemini API. Transcription uses the Interactions API (`POST /v1beta/interactions`) with
   `transcription_config` for speaker diarization + word timestamps (field names from the google-genai SDK and the Gemini cookbook);
@@ -38,6 +38,8 @@ if the server has a newer version it shows a Reload banner. When releasing, bump
 4. Anything still unplaced, and any speaker beyond "Max speakers", becomes "Unidentified speaker".
 
 ## Editing and saved progress
+- Tap **Edit** on any line to correct its text in place (saved with the transcript, marked "edited", included in exports).
+- Up to 8 speakers are labelled (Gemini's diarization limit); any further voices become "Unidentified speaker".
 - Tap a speaker's name on any line to: rename that speaker everywhere, merge them into another speaker, or move just that one line.
   Name suggestions come from a single text-only call that looks for names actually said in the conversation (introductions,
   being addressed by name); it runs the first time you open the sheet and is cached.

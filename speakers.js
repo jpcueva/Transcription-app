@@ -152,12 +152,18 @@
         finish(i, d.mapping);
         return step(i + 1);
       }
+      // Context from the parts already resolved. Lines flagged as likely model mistakes (e.g. a hallucinated repeat
+      // "spoken" after the person left) are left out so they cannot hide clues like "I need to drop off".
       var done = [];
       out.forEach(function (p) { done = done.concat(p.segments); });
+      var Q = typeof require === 'function' && typeof module !== 'undefined' ? require('./quality.js') : root.Quality;
+      if (Q) { var bad = Q.flags(done); done = done.filter(function (x, k) { return !bad[k]; }); }
+      var self = {};
+      Object.keys(registry).forEach(function (l) { self[l] = l; });
       var request = {
         canonical: Object.keys(registry).map(function (l) {
           var last = lastLines(done, l, 2);
-          return { label: l, samples: registry[l], lastLines: last, lastSeen: last.length ? last[last.length - 1].start : null };
+          return { label: l, samples: registry[l], lastLines: last, lastSeen: last.length ? last[last.length - 1].start : null, cues: cuesFor(done, l, self, 3) };
         }),
         unresolved: d.unresolved.map(function (l) {
           var first = segs.filter(function (x) { return x.speaker === l; })[0];

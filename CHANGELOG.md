@@ -3,6 +3,17 @@
 Every release bumps the version shown in the app (see "Releasing" in `AGENTS.md`). Each entry records what
 changed **and why**, so the reasoning survives a hand-off to another person or AI. Newest first.
 
+## v13 — 2026-10-20
+- **Flagged lines are left out of the AI matcher's context.** *Why:* in the real run of v12, Karthik's "last spoke"
+  time came from Gemini's hallucinated repeat at 37:25, not from "I need to drop off for another meeting" at 31:37,
+  so the AI still matched an IT answer at 52:55 to him. Lines flagged by `quality.js` (impossibly fast speech,
+  repeated text) no longer count as anyone's last lines or name cues.
+- **Known speakers now carry their own name cues** (the line said just before their first turns), and the prompt
+  says that a known and an unmatched speaker called on by the same name are the same person. *Why:* Anusha got two
+  numbers — "I see Anusha, you have a hand up" (piece 1) and "Anusha, I don't want to put you on the spot"
+  (piece 2) — because only the unmatched side's cue was shown.
+- Confirmed on the real run of v12: Juan now gets his own number (cue "Juan, good question").
+
 ## v12 — 2026-10-20
 - **Better context for AI speaker matching between pieces** (matching stays broad: names, roles, topics, style).
   For each unmatched speaker the AI now also sees *the line said just before each of their first turns* and when

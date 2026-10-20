@@ -133,3 +133,22 @@ test('the AI resolver sees who was called on and when known speakers last spoke'
   assert.match(s2.lastLines.at(-1).text, /drop off/);
   assert.equal(s2.lastSeen, 1330);
 });
+
+test('known speakers carry their own name cues, and flagged lines are left out of the context', async () => {
+  const ps = twoPieces(false);
+  const echo = Array.from({ length: 6 }, () => LINES[3]).join(' ');
+  ps[0].segments.push(
+    seg(1100, 'Speaker 1', 'I see Anusha, you have a hand up. Yes.'),
+    seg(1104, 'Speaker 2', 'thanks this process moved really quickly and I have one question'),
+    seg(1334, 'Speaker 2', 'I need to drop off for another meeting, ping me in the chat'),
+    { start: 1337, end: 1339, speaker: 'Speaker 2', text: echo }); // 54 words in 2 s, repeating earlier text
+  ps[0].segments.sort((a, b) => a.start - b.start);
+  ps[1].segments.push(seg(1600, 'Speaker 1', 'Anusha I do not want to put you on the spot, can you confirm'), seg(1606, 'Speaker 3', 'that is what the collaboration team told me about the licenses'));
+  let req;
+  await resolve(ps, { resolver: async (r) => { req = r; return {}; } });
+  const s2 = req.canonical.find((c) => c.label === 'Speaker 2');
+  assert.ok(s2.cues.some((c) => c.text === 'I see Anusha, you have a hand up. Yes.' && c.speaker === 'Speaker 1'));
+  assert.match(s2.lastLines.at(-1).text, /drop off/); // the hallucinated repeat is not their "last line"
+  assert.equal(s2.lastSeen, 1334);
+  assert.match(req.unresolved[0].cues[0].text, /Anusha I do not want/);
+});

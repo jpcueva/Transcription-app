@@ -191,8 +191,9 @@
     var t = function (sec) { return sec == null ? '?' : Math.floor(sec / 60) + ':' + String(Math.floor(sec % 60)).padStart(2, '0'); };
     var lines = function (list) { return (list || []).map(function (s) { return '- [' + t(s.start) + '] ' + s.text; }).join('\n'); };
     var known = opts.canonical.map(function (x) {
-      return '## ' + x.label + ' (last spoke at ' + t(x.lastSeen) + ')\nSample lines:\n' + (lines(x.samples) || '- (none)') +
-        '\nTheir last lines so far:\n' + (lines(x.lastLines) || '- (none)');
+      var cues = (x.cues || []).map(function (c) { return '- [' + t(c.start) + '] ' + c.speaker + ': ' + c.text; }).join('\n');
+      return '## ' + x.label + ' (last spoke at ' + t(x.lastSeen) + ')\nWhat was said just before they first spoke:\n' + (cues || '- (nothing)') +
+        '\nSample lines:\n' + (lines(x.samples) || '- (none)') + '\nTheir last lines so far:\n' + (lines(x.lastLines) || '- (none)');
     }).join('\n\n');
     var unmatched = opts.unresolved.map(function (x) {
       var cues = (x.cues || []).map(function (c) { return '- [' + t(c.start) + '] ' + c.speaker + ': ' + c.text; }).join('\n');
@@ -206,7 +207,7 @@
       'role (host, presenter, guest, IT, etc.), who they reply to, the topics they talk about, and their vocabulary and ' +
       'speaking style. Two clues outweigh topic and style: (1) if the line just before they speak calls on someone by ' +
       'name ("Juan, good question", "Axel."), they are that person, so they are NEW unless a known speaker clearly has ' +
-      'that name; (2) a known speaker who said they were leaving, or who has not spoken for a long time, should only be ' +
+      'that name, and if a known speaker was called on by that same name before they spoke, it is that known speaker; (2) a known speaker who said they were leaving, or who has not spoken for a long time, should only be ' +
       'matched on strong evidence. Answer with the exact known label when the clues reasonably point to one person. ' +
       'Answer "NEW" when it looks like someone not listed or when you are genuinely unsure; a new person gets a new ' +
       'number that the user can merge later.\n\n# KNOWN\n' + known + '\n\n# UNMATCHED\n' + unmatched;
